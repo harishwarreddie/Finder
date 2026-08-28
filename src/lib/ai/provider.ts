@@ -58,7 +58,7 @@ export function getModel() {
   //      Groq's API is Chat Completions-compatible but does NOT support the Responses API format.
   //      Without .chat(), the SDK sends Responses API requests → Groq rejects with
   //      "unsupported content types or unsupported content fields".
-  return groq.chat("mixtral-8x7b-32768");
+  return groq.chat("llama-3.1-70b-versatile");
 }
 
 /**
