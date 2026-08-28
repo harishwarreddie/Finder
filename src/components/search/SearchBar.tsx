@@ -1,9 +1,6 @@
 "use client";
 
-// ── SEARCH BAR ────────────────────────────────────────────────────────────────
-// Handles both direct title search and natural language queries.
-// Submits to /search?q=... for server-side rendering.
-
+// ── SEARCH BAR (Gen Z redesign) ───────────────────────────────────────────────
 import { useState, useRef, useEffect } from "react";
 import { useRouter } from "next/navigation";
 
@@ -12,23 +9,15 @@ export function SearchBar({ initialValue = "" }: { initialValue?: string }) {
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>([]);
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [focused, setFocused] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const router = useRouter();
 
-  // Fetch autocomplete suggestions from /api/search
   useEffect(() => {
-    if (query.length < 2) {
-      setSuggestions([]);
-      return;
-    }
-
-    // Only fetch for direct title searches (no question words)
-    const isNaturalLanguage = /^(where|what|is|find|can i|how|show me)/i.test(query.trim());
-    if (isNaturalLanguage) {
-      setSuggestions([]);
-      return;
-    }
+    if (query.length < 2) { setSuggestions([]); return; }
+    const isNL = /^(where|what|is|find|can i|how|show me)/i.test(query.trim());
+    if (isNL) { setSuggestions([]); return; }
 
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(async () => {
@@ -38,16 +27,9 @@ export function SearchBar({ initialValue = "" }: { initialValue?: string }) {
         const data = await res.json();
         setSuggestions(data.results ?? []);
         setShowSuggestions(true);
-      } catch {
-        // Ignore autocomplete errors — user can still submit manually
-      } finally {
-        setLoading(false);
-      }
+      } catch { /* ignore */ } finally { setLoading(false); }
     }, 300);
-
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
+    return () => { if (debounceRef.current) clearTimeout(debounceRef.current); };
   }, [query]);
 
   function handleSubmit(e: React.FormEvent) {
@@ -58,45 +40,73 @@ export function SearchBar({ initialValue = "" }: { initialValue?: string }) {
     router.push(`/search?q=${encodeURIComponent(q)}`);
   }
 
-  function handleSuggestionClick(suggestion: SearchSuggestion) {
+  function handleSuggestionClick(s: SearchSuggestion) {
     setShowSuggestions(false);
-    router.push(`/search?q=${encodeURIComponent(suggestion.title)}&tmdbId=${suggestion.tmdbId}&type=${suggestion.mediaType}`);
+    router.push(`/search?q=${encodeURIComponent(s.title)}&tmdbId=${s.tmdbId}&type=${s.mediaType}`);
   }
 
+  const glowStyle = focused
+    ? { boxShadow: "0 0 0 1px rgba(124,58,237,0.5), 0 0 28px rgba(124,58,237,0.20), 0 0 56px rgba(236,72,153,0.10)" }
+    : { boxShadow: "0 0 0 1px rgba(255,255,255,0.07), 0 4px 24px rgba(0,0,0,0.3)" };
+
   return (
-    <div className="relative w-full">
+    <div style={{ position: "relative", width: "100%" }}>
       <form onSubmit={handleSubmit} role="search">
-        <div
-          className="flex items-center gap-3 rounded-2xl border px-4 py-3.5 transition-shadow focus-within:shadow-lg"
-          style={{
-            background: "var(--surface)",
-            borderColor: "var(--border)",
-          }}
-        >
-          <SearchIcon />
+        <div style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          borderRadius: 20,
+          padding: "14px 16px",
+          background: "rgba(255,255,255,0.05)",
+          backdropFilter: "blur(20px)",
+          WebkitBackdropFilter: "blur(20px)",
+          border: focused ? "1px solid rgba(124,58,237,0.45)" : "1px solid rgba(255,255,255,0.09)",
+          transition: "border-color 0.25s, box-shadow 0.25s",
+          ...glowStyle,
+        }}>
+          <SearchIcon focused={focused} />
           <input
             ref={inputRef}
             type="search"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
-            onBlur={() => setTimeout(() => setShowSuggestions(false), 150)}
-            placeholder="Search for a movie, show, or ask a question…"
-            className="flex-1 bg-transparent text-base outline-none placeholder:text-sm"
-            style={{ color: "var(--foreground)" }}
+            onFocus={() => { setFocused(true); if (suggestions.length > 0) setShowSuggestions(true); }}
+            onBlur={() => { setFocused(false); setTimeout(() => setShowSuggestions(false), 150); }}
+            placeholder="Search or ask anything — &quot;Where can I watch Dune?&quot;"
+            style={{
+              flex: 1,
+              background: "transparent",
+              border: "none",
+              outline: "none",
+              fontSize: 15,
+              color: "var(--fg)",
+              caretColor: "#a78bfa",
+            }}
             aria-label="Search for entertainment content"
             autoComplete="off"
-            spellCheck="false"
+            spellCheck={false}
           />
           {loading && <SpinnerIcon />}
           <button
             type="submit"
             disabled={!query.trim()}
-            className="text-sm font-medium px-4 py-1.5 rounded-lg transition-colors disabled:opacity-40"
             style={{
-              background: "var(--accent)",
+              background: query.trim() ? "var(--grad-btn)" : "rgba(255,255,255,0.08)",
               color: "#fff",
+              border: "none",
+              borderRadius: 12,
+              padding: "8px 18px",
+              fontSize: 14,
+              fontWeight: 600,
+              cursor: query.trim() ? "pointer" : "not-allowed",
+              opacity: query.trim() ? 1 : 0.45,
+              transition: "background 0.2s, opacity 0.2s, transform 0.15s, box-shadow 0.2s",
+              flexShrink: 0,
+              letterSpacing: "-0.01em",
             }}
+            onMouseEnter={e => { if (query.trim()) (e.currentTarget as HTMLElement).style.transform = "scale(1.04)"; }}
+            onMouseLeave={e => { (e.currentTarget as HTMLElement).style.transform = "scale(1)"; }}
           >
             Search
           </button>
@@ -105,44 +115,48 @@ export function SearchBar({ initialValue = "" }: { initialValue?: string }) {
 
       {/* Autocomplete dropdown */}
       {showSuggestions && suggestions.length > 0 && (
-        <div
-          className="absolute top-full left-0 right-0 mt-2 rounded-xl border shadow-xl overflow-hidden z-50"
-          style={{
-            background: "var(--surface)",
-            borderColor: "var(--border)",
-          }}
-        >
-          {suggestions.map((s) => (
+        <div style={{
+          position: "absolute", top: "calc(100% + 8px)", left: 0, right: 0,
+          borderRadius: 16,
+          overflow: "hidden",
+          background: "rgba(13,15,26,0.92)",
+          backdropFilter: "blur(20px)",
+          WebkitBackdropFilter: "blur(20px)",
+          border: "1px solid rgba(255,255,255,0.10)",
+          boxShadow: "0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(124,58,237,0.15)",
+          zIndex: 50,
+        }}>
+          {suggestions.map((s, i) => (
             <button
               key={s.tmdbId}
               type="button"
               onClick={() => handleSuggestionClick(s)}
-              className="w-full flex items-center gap-3 px-4 py-3 text-left transition-colors"
-              style={{ borderBottom: `1px solid var(--border)` }}
-              onMouseEnter={(e) => (e.currentTarget.style.background = "var(--surface-2)")}
-              onMouseLeave={(e) => (e.currentTarget.style.background = "transparent")}
+              style={{
+                width: "100%",
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                padding: "10px 16px",
+                background: "transparent",
+                border: "none",
+                borderBottom: i < suggestions.length - 1 ? "1px solid rgba(255,255,255,0.06)" : "none",
+                cursor: "pointer",
+                textAlign: "left",
+                transition: "background 0.15s",
+              }}
+              onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "rgba(124,58,237,0.08)"}
+              onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "transparent"}
             >
               {s.posterUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
-                <img
-                  src={s.posterUrl}
-                  alt=""
-                  className="w-8 h-12 object-cover rounded flex-shrink-0"
-                />
+                <img src={s.posterUrl} alt="" style={{ width: 32, height: 48, objectFit: "cover", borderRadius: 6, flexShrink: 0 }} />
               ) : (
-                <div className="w-8 h-12 rounded flex-shrink-0 flex items-center justify-center"
-                  style={{ background: "var(--surface-2)" }}>
-                  <span className="text-lg">🎬</span>
-                </div>
+                <div style={{ width: 32, height: 48, borderRadius: 6, flexShrink: 0, display: "flex", alignItems: "center", justifyContent: "center", background: "rgba(255,255,255,0.06)", fontSize: 18 }}>🎬</div>
               )}
-              <div className="flex-1 min-w-0">
-                <p className="font-medium text-sm truncate" style={{ color: "var(--foreground)" }}>
-                  {s.title}
-                </p>
-                <p className="text-xs" style={{ color: "var(--subtle)" }}>
-                  {s.year && `${s.year} · `}
-                  {s.mediaType === "tv" ? "TV Show" : "Movie"}
-                  {s.voteAverage && s.voteAverage > 0 && ` · ★ ${s.voteAverage.toFixed(1)}`}
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <p style={{ fontWeight: 600, fontSize: 14, color: "var(--fg)", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", margin: 0 }}>{s.title}</p>
+                <p style={{ fontSize: 12, color: "var(--muted)", margin: 0 }}>
+                  {s.year && `${s.year} · `}{s.mediaType === "tv" ? "TV Show" : "Movie"}{s.voteAverage && s.voteAverage > 0 ? ` · ★ ${s.voteAverage.toFixed(1)}` : ""}
                 </p>
               </div>
             </button>
@@ -154,7 +168,6 @@ export function SearchBar({ initialValue = "" }: { initialValue?: string }) {
 }
 
 // ── TYPES ─────────────────────────────────────────────────────────────────────
-
 interface SearchSuggestion {
   tmdbId: number;
   mediaType: string;
@@ -165,12 +178,11 @@ interface SearchSuggestion {
 }
 
 // ── ICONS ─────────────────────────────────────────────────────────────────────
-
-function SearchIcon() {
+function SearchIcon({ focused }: { focused: boolean }) {
   return (
     <svg width="18" height="18" viewBox="0 0 24 24" fill="none"
       stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"
-      style={{ color: "var(--subtle)", flexShrink: 0 }}>
+      style={{ color: focused ? "#a78bfa" : "var(--subtle)", flexShrink: 0, transition: "color 0.25s" }}>
       <circle cx="11" cy="11" r="8" />
       <path d="m21 21-4.35-4.35" />
     </svg>
@@ -179,10 +191,8 @@ function SearchIcon() {
 
 function SpinnerIcon() {
   return (
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none"
-      stroke="currentColor" strokeWidth="2"
-      style={{ color: "var(--subtle)", animation: "spin 1s linear infinite", flexShrink: 0 }}>
-      <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+      style={{ color: "#a78bfa", animation: "spin 1s linear infinite", flexShrink: 0 }}>
       <path d="M21 12a9 9 0 1 1-6.219-8.56" />
     </svg>
   );

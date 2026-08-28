@@ -1,63 +1,151 @@
 @import "tailwindcss";
 
-/* ── DESIGN TOKENS ── */
+/* ── GEN Z DESIGN TOKENS ──────────────────────────────────────────────────────
+   Dark-first. Violet × pink × cyan. Always cinematic.
+*/
 :root {
-  /* Light theme */
-  --background:  #F3F5FA;
-  --surface:     #FFFFFF;
-  --surface-2:   #EAEDF6;
-  --border:      #D2D8EC;
-  --foreground:  #0F1623;
-  --muted:       #3E4A62;
-  --subtle:      #7A889E;
-  --accent:      #2563EB;
-  --accent-dim:  #DBEAFE;
-  --green:       #16A34A;
-  --green-dim:   #DCFCE7;
-  --orange:      #EA580C;
-  --orange-dim:  #FFF7ED;
-  --red:         #DC2626;
-  --red-dim:     #FEF2F2;
+  /* Background layers */
+  --bg:          #07080f;
+  --bg-2:        #0d0f1a;
+
+  /* Glass surfaces */
+  --surface:     rgba(255, 255, 255, 0.05);
+  --surface-2:   rgba(255, 255, 255, 0.09);
+  --border:      rgba(255, 255, 255, 0.09);
+  --border-hi:   rgba(255, 255, 255, 0.18);
+
+  /* Text */
+  --fg:          #e8eaf6;
+  --muted:       #8892b0;
+  --subtle:      #4a5272;
+
+  /* Gradient palette */
+  --violet:      #7c3aed;
+  --pink:        #ec4899;
+  --cyan:        #22d3ee;
+  --grad:        linear-gradient(135deg, #7c3aed, #ec4899, #22d3ee);
+  --grad-text:   linear-gradient(135deg, #a78bfa 0%, #f472b6 50%, #67e8f9 100%);
+  --grad-btn:    linear-gradient(135deg, #7c3aed 0%, #ec4899 100%);
+
+  /* Semantic */
+  --error:       #f43f5e;
+  --error-bg:    rgba(244, 63, 94, 0.1);
+  --success:     #34d399;
+
+  /* Legacy aliases so old components still compile */
+  --accent:      #8b5cf6;
+  --accent-dim:  rgba(139, 92, 246, 0.12);
+  --background:  #07080f;
+  --foreground:  #e8eaf6;
+  --surface-old: rgba(255,255,255,0.05);
+  --red:         #f43f5e;
+  --red-dim:     rgba(244,63,94,0.1);
+  --green:       #34d399;
+  --green-dim:   rgba(52,211,153,0.12);
 }
 
-@media (prefers-color-scheme: dark) {
-  :root {
-    --background:  #090C13;
-    --surface:     #111520;
-    --surface-2:   #171C2B;
-    --border:      #1E2535;
-    --foreground:  #E2EAF6;
-    --muted:       #8097B4;
-    --subtle:      #4A5C74;
-    --accent:      #5BAAFF;
-    --accent-dim:  #0D1E36;
-    --green:       #3DD68C;
-    --green-dim:   #0A2416;
-    --orange:      #FF7A45;
-    --orange-dim:  #2A1208;
-    --red:         #FF5B5B;
-    --red-dim:     #2A0A0A;
+/* Light mode — violet-tinted, still works */
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --bg:         #f3f0ff;
+    --bg-2:       #ede8ff;
+    --surface:    rgba(255, 255, 255, 0.70);
+    --surface-2:  rgba(255, 255, 255, 0.92);
+    --border:     rgba(0, 0, 0, 0.08);
+    --border-hi:  rgba(0, 0, 0, 0.14);
+    --fg:         #0f0820;
+    --muted:      #4a3d80;
+    --subtle:     #8878b4;
+    --accent:     #6d28d9;
+    --accent-dim: rgba(109, 40, 217, 0.1);
+    --background: #f3f0ff;
+    --foreground: #0f0820;
   }
 }
 
-@theme inline {
-  --color-background: var(--background);
-  --color-foreground: var(--foreground);
-  --color-surface:    var(--surface);
-  --color-border:     var(--border);
-  --color-accent:     var(--accent);
-  --font-sans:        var(--font-geist-sans);
-  --font-mono:        var(--font-geist-mono);
+:root[data-theme="dark"] {
+  --bg:          #07080f;
+  --bg-2:        #0d0f1a;
+  --surface:     rgba(255, 255, 255, 0.05);
+  --surface-2:   rgba(255, 255, 255, 0.09);
+  --border:      rgba(255, 255, 255, 0.09);
+  --border-hi:   rgba(255, 255, 255, 0.18);
+  --fg:          #e8eaf6;
+  --muted:       #8892b0;
+  --subtle:      #4a5272;
+  --background:  #07080f;
+  --foreground:  #e8eaf6;
 }
+
+@theme inline {
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { scroll-behavior: smooth; }
 
 body {
-  background: var(--background);
-  color: var(--foreground);
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--font-sans), system-ui, sans-serif;
+  min-height: 100dvh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
-/* ── FOCUS RING ── */
+/* ── GRADIENT TEXT ───────────────────────────────────────────────────────────*/
+.grad-text {
+  background: var(--grad-text);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  background-clip: text;
+}
+
+/* ── ANIMATIONS ──────────────────────────────────────────────────────────────*/
+@keyframes orb-float {
+  0%, 100% { transform: translateY(0px) scale(1); }
+  50%       { transform: translateY(-32px) scale(1.05); }
+}
+@keyframes orb-drift {
+  0%, 100% { transform: translate(0, 0) rotate(0deg); }
+  33%       { transform: translate(-20px, -24px) rotate(6deg); }
+  66%       { transform: translate(18px, 12px) rotate(-4deg); }
+}
+@keyframes orb-spin {
+  0%, 100% { transform: translate(0, 0); }
+  50%       { transform: translate(24px, -20px); }
+}
+
+@keyframes slide-up {
+  from { opacity: 0; transform: translateY(24px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes fade-in {
+  from { opacity: 0; }
+  to   { opacity: 1; }
+}
+
+@keyframes bounce-dot {
+  0%, 80%, 100% { transform: scale(0.5); opacity: 0.2; }
+  40%            { transform: scale(1.35); opacity: 1; }
+}
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes msg-right {
+  from { opacity: 0; transform: translateX(16px) scale(0.94); }
+  to   { opacity: 1; transform: translateX(0) scale(1); }
+}
+@keyframes msg-left {
+  from { opacity: 0; transform: translateX(-16px) scale(0.94); }
+  to   { opacity: 1; transform: translateX(0) scale(1); }
+}
+
+/* ── FOCUS ───────────────────────────────────────────────────────────────────*/
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid #7c3aed;
   outline-offset: 2px;
   border-radius: 4px;
 }

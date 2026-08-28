@@ -32,11 +32,14 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
 
   if (!query) {
     return (
-      <main className="max-w-3xl mx-auto px-4 py-16">
-        <SearchBar />
-        <p className="mt-8 text-center text-sm" style={{ color: "var(--subtle)" }}>
-          Enter a title or ask a question to get started.
-        </p>
+      <main style={{ position: "relative", minHeight: "100dvh", background: "var(--bg)", overflow: "hidden" }}>
+        <Orbs />
+        <div style={{ position: "relative", zIndex: 1, maxWidth: 720, margin: "0 auto", padding: "4rem 1rem" }}>
+          <SearchBar />
+          <p style={{ marginTop: 32, textAlign: "center", fontSize: 14, color: "var(--subtle)" }}>
+            Enter a title or ask a question to get started.
+          </p>
+        </div>
       </main>
     );
   }
@@ -44,20 +47,43 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
   const isNaturalLanguage = NATURAL_LANGUAGE_PATTERNS.test(query);
 
   return (
-    <main className="max-w-3xl mx-auto px-4 py-8">
-      {/* Search bar at top */}
-      <div className="mb-8">
-        <SearchBar initialValue={query} />
-      </div>
+    <main style={{ position: "relative", minHeight: "100dvh", background: "var(--bg)", overflow: "hidden" }}>
+      <Orbs />
+      <div style={{ position: "relative", zIndex: 1, maxWidth: 720, margin: "0 auto", padding: "2rem 1rem 4rem" }}>
+        {/* Search bar at top */}
+        <div style={{ marginBottom: 28 }}>
+          <SearchBar initialValue={query} />
+        </div>
 
-      {isNaturalLanguage ? (
-        // Natural language → AI chat interface
-        <ChatPanel initialQuery={query} />
-      ) : (
-        // Direct title search → server-rendered results
-        <DirectSearchResults query={query} />
-      )}
+        {isNaturalLanguage ? (
+          <ChatPanel initialQuery={query} />
+        ) : (
+          <DirectSearchResults query={query} />
+        )}
+      </div>
     </main>
+  );
+}
+
+// ── BACKGROUND ORBS ───────────────────────────────────────────────────────────
+function Orbs() {
+  return (
+    <div aria-hidden="true" style={{ position: "absolute", inset: 0, overflow: "hidden", pointerEvents: "none" }}>
+      <div style={{
+        position: "absolute", top: "-5%", left: "5%",
+        width: 420, height: 420, borderRadius: "50%",
+        background: "radial-gradient(circle, rgba(124,58,237,0.16) 0%, transparent 68%)",
+        filter: "blur(40px)",
+        animation: "orb-float 9s ease-in-out infinite",
+      }} />
+      <div style={{
+        position: "absolute", top: "40%", right: "0%",
+        width: 340, height: 340, borderRadius: "50%",
+        background: "radial-gradient(circle, rgba(236,72,153,0.12) 0%, transparent 68%)",
+        filter: "blur(40px)",
+        animation: "orb-drift 13s ease-in-out infinite",
+      }} />
+    </div>
   );
 }
 
