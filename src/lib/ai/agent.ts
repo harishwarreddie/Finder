@@ -199,11 +199,36 @@ export async function runAgent(
     if (exact) topResult = exact;
     // If no exact match (unusual), fall through with topResult = first result
   } else {
-    // Path B: fresh search — ask user to pick if there are multiple distinct titles
+    // Path B: fresh search — disambiguate only when genuinely ambiguous.
+    //
+    // Skip disambiguation when the top result is a clear dominant winner:
+    //   1. POPULARITY_DOMINANT: top result is popular (>15) AND at least 4x more popular
+    //      than the second result. E.g. "Oppenheimer" → 2023 Nolan film (pop ~500) vs some
+    //      obscure 1980 documentary (pop ~5) — no need to ask.
+    //   2. EXACT_TITLE_MATCH: user typed the exact title of the top result AND it has
+    //      significant votes (>300), suggesting it's the well-known version.
+    //      E.g. "Spider-Man 2" exactly matches the 2004 film.
+    //
+    // Still disambiguates for genuinely split cases like "Batman" (many popular results).
+
     const secondResult = searchResults[1];
-    const needsDisambiguation =
+    const namesAreDifferent =
       secondResult &&
       (secondResult.title ?? secondResult.name) !== (topResult.title ?? topResult.name);
+
+    const topPop    = (topResult as { popularity?: number }).popularity ?? 0;
+    const secondPop = secondResult
+      ? (secondResult as { popularity?: number }).popularity ?? 0
+      : 0;
+
+    const isDominant =
+      topPop > 15 && (!secondResult || topPop > secondPop * 4);
+
+    const isExactMatch =
+      (topResult.title ?? topResult.name ?? "").toLowerCase() === extracted.toLowerCase() &&
+      ((topResult as { vote_count?: number }).vote_count ?? 0) > 300;
+
+    const needsDisambiguation = namesAreDifferent && !isDominant && !isExactMatch;
 
     if (needsDisambiguation) {
       const disambigOptions = searchResults.slice(0, 4).map((r, i) => {
