@@ -5,7 +5,7 @@
 
 import type { Metadata } from "next";
 import { SearchBar } from "@/components/search/SearchBar";
-import { ChatPanel } from "@/components/ai/ChatPanel";
+import { ChatWithSubscriptions } from "@/components/ai/ChatWithSubscriptions";
 import { searchMulti, tmdbPosterUrl } from "@/lib/api/tmdb";
 
 interface SearchPageProps {
@@ -56,7 +56,7 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
         </div>
 
         {isNaturalLanguage ? (
-          <ChatPanel initialQuery={query} />
+          <ChatWithSubscriptions initialQuery={query} />
         ) : (
           <DirectSearchResults query={query} />
         )}

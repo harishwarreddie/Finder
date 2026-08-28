@@ -40,7 +40,7 @@ export async function runAgent(
     _knownMediaType?: "movie" | "tv";
   } = {}
 ) {
-  const { region = "US", _knownTitle, _knownYear, _knownMediaType } = options;
+  const { region = "US", userSubscriptions = [], _knownTitle, _knownYear, _knownMediaType } = options;
 
   // ── STEP 1: Extract the title ───────────────────────────────────────────────
   // What: ask the model to pull the movie/TV title out of the conversation.
@@ -263,6 +263,14 @@ export async function runAgent(
       }
     : { title, year, type: topResult.media_type, region, notAvailable: true };
 
+  const subscriptionNote =
+    userSubscriptions.length > 0
+      ? `\nThe user has these subscriptions: ${userSubscriptions.join(", ")}. ` +
+        `Check if the title is in the subscription list in the data. ` +
+        `If it is on one of their services, lead with that — say they can watch it now with their subscription. ` +
+        `If none of their services have it, mention that clearly upfront before listing other options.`
+      : "";
+
   const formatResult = await generateText({
     model: getModel(),
     system:
@@ -270,7 +278,8 @@ export async function runAgent(
       "List platforms by type: subscription, free, rent, buy. " +
       "If a category is empty, skip it. " +
       "If notAvailable is true, say the title isn't currently available for streaming in that region. " +
-      "Be concise — 2-5 lines max. No markdown headers.",
+      "Be concise — 2-5 lines max. No markdown headers." +
+      subscriptionNote,
     messages: [
       { role: "user", content: `Data: ${JSON.stringify(dataForAI)}` },
     ],
