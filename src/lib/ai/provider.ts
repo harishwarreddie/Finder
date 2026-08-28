@@ -44,11 +44,12 @@ function getGroqClient() {
  *   llama-3.1-8b-instant → not available on this Groq account
  *   qwen/qwen3.6-27b          → works but slow (thinking model, ~15–30s per query)
  *   llama-3.3-70b-versatile   → not available on this Groq account
- *   llama3-70b-8192           → current — fast (~2–4s), free tier, reliable on all Groq accounts
+ *   llama3-70b-8192           → decommissioned by Groq
+ *   mixtral-8x7b-32768        → current — Groq's longest-running supported model
  *
- * Why llama3-70b-8192:
- *   Original Meta LLaMA 3 70B hosted on Groq's hardware. One of the most reliably
- *   available free-tier models. Fast, strong at instruction following.
+ * Why mixtral-8x7b-32768:
+ *   Mixtral 8x7B MoE model on Groq. Very stable, fast, and reliably available
+ *   on free-tier accounts. Strong at structured instruction following.
  */
 export function getModel() {
   const groq = getGroqClient();
@@ -57,7 +58,7 @@ export function getModel() {
   //      Groq's API is Chat Completions-compatible but does NOT support the Responses API format.
   //      Without .chat(), the SDK sends Responses API requests → Groq rejects with
   //      "unsupported content types or unsupported content fields".
-  return groq.chat("llama3-70b-8192");
+  return groq.chat("mixtral-8x7b-32768");
 }
 
 /**
