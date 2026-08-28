@@ -1,0 +1,196 @@
+// ── PRISMA SCHEMA ─────────────────────────────────────────────────────────────
+// Universal Entertainment Finder
+// Run: npx prisma generate && npx prisma db push
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+// ── ENUMS ─────────────────────────────────────────────────────────────────────
+
+enum ContentType {
+  MOVIE
+  TV_SHOW
+  TV_EPISODE
+  ANIME
+  DOCUMENTARY
+  PODCAST
+  PODCAST_EPISODE
+  MUSIC_ALBUM
+  MUSIC_TRACK
+  AUDIOBOOK
+  BOOK
+  SPORTS_EVENT
+  SPECIAL
+}
+
+enum AvailabilityType {
+  SUBSCRIPTION   // Included with subscription (e.g. Netflix)
+  ADDON          // Requires addon on top of subscription (e.g. Paramount+ on Prime)
+  RENT           // One-time rental
+  BUY            // Purchase/permanent ownership
+  FREE           // Free with ads (e.g. Pluto TV, Tubi)
+  FREE_WITH_ADS  // Alias kept for clarity
+}
+
+enum ConfidenceLevel {
+  CONFIRMED  // Verified from official API in last TTL window
+  LIKELY     // Inferred / secondary source
+  UNKNOWN    // Could not verify — treat as stale
+}
+
+// ── CONTENT ───────────────────────────────────────────────────────────────────
+
+model Content {
+  id          String      @id @default(cuid())
+  tmdbId      Int?        @unique @map("tmdb_id")
+  contentType ContentType @map("content_type")
+  title       String
+  slug        String      @unique
+  overview    String?
+  posterPath  String?     @map("poster_path")
+  backdropPath String?    @map("backdrop_path")
+  releaseDate DateTime?   @map("release_date") @db.Date
+  runtimeMins Int?        @map("runtime_mins")
+  status      String?     // Released | In Production | Ended | Returning Series
+  voteAverage Float?      @map("vote_average")
+  voteCount   Int?        @map("vote_count")
+  // Flexible per-type extras: imdb_id, number_of_seasons, episode_count, etc.
+  metadata    Json?       @default("{}")
+
+  createdAt   DateTime    @default(now()) @map("created_at")
+  updatedAt   DateTime    @updatedAt @map("updated_at")
+
+  // Relations
+  genres      ContentGenre[]
+  sources     StreamingSource[]
+  searchLogs  SearchLog[]
+
+  @@map("content")
+}
+
+// ── PLATFORM ──────────────────────────────────────────────────────────────────
+
+model Platform {
+  id       String   @id @default(cuid())
+  name     String   // "Netflix", "Prime Video", "Apple TV+"
+  slug     String   @unique // "netflix", "prime-video", "apple-tv-plus"
+  logoUrl  String?  @map("logo_url")
+  baseUrl  String?  @map("base_url")
+  type     String   // "subscription" | "transactional" | "free" | "mixed"
+  regions  String[] // ISO 3166-1 codes: ["US", "GB", "CA"]
+  // Watchmode/TMDB source IDs for this platform
+  watchmodeId Int?  @map("watchmode_id")
+  tmdbProviderId Int? @map("tmdb_provider_id")
+
+  sources  StreamingSource[]
+  userSubscriptions UserSubscription[]
+
+  @@map("platform")
+}
+
+// ── STREAMING AVAILABILITY ────────────────────────────────────────────────────
+
+model StreamingSource {
+  id               String           @id @default(cuid())
+  contentId        String           @map("content_id")
+  platformId       String           @map("platform_id")
+  regionCode       String           @map("region_code") // "US", "GB"
+  availabilityType AvailabilityType @map("availability_type")
+  price            Decimal?         @db.Decimal(8, 2)
+  currency         String?          @default("USD") @db.Char(3)
+  quality          String?          // "SD" | "HD" | "4K"
+  watchLink        String?          @map("watch_link")
+  lastCheckedAt    DateTime         @map("last_checked_at")
+  expiresAt        DateTime?        @map("expires_at") // Known removal date if provided
+  source           String           // "watchmode" | "tmdb" | "manual"
+  confidence       ConfidenceLevel  @default(CONFIRMED)
+
+  content  Content  @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  platform Platform @relation(fields: [platformId], references: [id])
+
+  @@unique([contentId, platformId, regionCode, availabilityType])
+  @@index([contentId, regionCode])
+  @@index([lastCheckedAt])
+  @@map("streaming_source")
+}
+
+// ── GENRE ─────────────────────────────────────────────────────────────────────
+
+model Genre {
+  id      Int    @id
+  name    String
+  tmdbId  Int?   @unique @map("tmdb_id")
+
+  contents ContentGenre[]
+
+  @@map("genre")
+}
+
+model ContentGenre {
+  contentId String  @map("content_id")
+  genreId   Int     @map("genre_id")
+
+  content Content @relation(fields: [contentId], references: [id], onDelete: Cascade)
+  genre   Genre   @relation(fields: [genreId], references: [id])
+
+  @@id([contentId, genreId])
+  @@map("content_genre")
+}
+
+// ── USER ──────────────────────────────────────────────────────────────────────
+// Phase 2 — schema ready, Auth.js wired in Phase 11
+
+model User {
+  id         String   @id @default(cuid())
+  email      String   @unique
+  name       String?
+  image      String?
+  regionCode String   @default("US") @map("region_code")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  subscriptions UserSubscription[]
+  searchLogs    SearchLog[]
+  // watchlist and favorites — Phase 2
+
+  @@map("user")
+}
+
+model UserSubscription {
+  userId     String   @map("user_id")
+  platformId String   @map("platform_id")
+  addedAt    DateTime @default(now()) @map("added_at")
+
+  user     User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  platform Platform @relation(fields: [platformId], references: [id])
+
+  @@id([userId, platformId])
+  @@map("user_subscription")
+}
+
+// ── SEARCH LOG ────────────────────────────────────────────────────────────────
+
+model SearchLog {
+  id        String   @id @default(cuid())
+  userId    String?  @map("user_id") // null for anonymous
+  contentId String?  @map("content_id")
+  query     String
+  intent    String?  // "direct" | "question" | "conditional" | "discovery"
+  region    String   @default("US")
+  results   Json?    // snapshot of top results
+  createdAt DateTime @default(now()) @map("created_at")
+
+  user    User?    @relation(fields: [userId], references: [id])
+  content Content? @relation(fields: [contentId], references: [id])
+
+  @@index([userId])
+  @@index([createdAt])
+  @@map("search_log")
+}

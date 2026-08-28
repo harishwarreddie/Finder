@@ -1,0 +1,70 @@
+@import "tailwindcss";
+
+/* ── DESIGN TOKENS ── */
+:root {
+  /* Light theme */
+  --background:  #F3F5FA;
+  --surface:     #FFFFFF;
+  --surface-2:   #EAEDF6;
+  --border:      #D2D8EC;
+  --foreground:  #0F1623;
+  --muted:       #3E4A62;
+  --subtle:      #7A889E;
+  --accent:      #2563EB;
+  --accent-dim:  #DBEAFE;
+  --green:       #16A34A;
+  --green-dim:   #DCFCE7;
+  --orange:      #EA580C;
+  --orange-dim:  #FFF7ED;
+  --red:         #DC2626;
+  --red-dim:     #FEF2F2;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --background:  #090C13;
+    --surface:     #111520;
+    --surface-2:   #171C2B;
+    --border:      #1E2535;
+    --foreground:  #E2EAF6;
+    --muted:       #8097B4;
+    --subtle:      #4A5C74;
+    --accent:      #5BAAFF;
+    --accent-dim:  #0D1E36;
+    --green:       #3DD68C;
+    --green-dim:   #0A2416;
+    --orange:      #FF7A45;
+    --orange-dim:  #2A1208;
+    --red:         #FF5B5B;
+    --red-dim:     #2A0A0A;
+  }
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-surface:    var(--surface);
+  --color-border:     var(--border);
+  --color-accent:     var(--accent);
+  --font-sans:        var(--font-geist-sans);
+  --font-mono:        var(--font-geist-mono);
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+}
+
+/* ── FOCUS RING ── */
+:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
