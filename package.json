@@ -9,16 +9,12 @@
     "lint": "eslint"
   },
   "dependencies": {
-    "@ai-sdk/anthropic": "^4.0.41",
-    "@ai-sdk/groq": "^1.0.0",
     "@ai-sdk/openai": "^4.0.0",
-    "@prisma/client": "^5.22.0",
     "@upstash/ratelimit": "^2.0.8",
     "@upstash/redis": "^1.38.2",
     "ai": "^7.0.77",
     "next": "16.3.2",
     "next-auth": "^5.0.0-beta.32",
-    "prisma": "^5.22.0",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "zod": "^4.4.3"
@@ -32,8 +28,5 @@
     "eslint-config-next": "16.3.2",
     "tailwindcss": "^4",
     "typescript": "^5"
-  },
-  "prisma": {
-    "seed": "ts-node prisma/seed.ts"
   }
 }
