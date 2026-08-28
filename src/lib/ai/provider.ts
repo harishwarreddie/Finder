@@ -42,11 +42,12 @@ function getGroqClient() {
  * Model history:
  *   openai/gpt-oss-120b  → injected garbage tokens into tool names
  *   llama-3.1-8b-instant → not available on this Groq account
- *   qwen/qwen3.6-27b     → works, 8,000 TPM free tier
+ *   qwen/qwen3.6-27b          → works but slow (thinking model, ~15–30s per query)
+ *   llama-3.3-70b-versatile   → current — fast (~2–4s), free tier, strong instruction following
  *
- * Why 8,000 TPM is now fine:
- *   Previously requests took 45s and the SDK retried 3x, burning ~9,000 tokens per query.
- *   Now requests are ~5s with 3 steps max → ~2,000 tokens per query → well within limits.
+ * Why llama-3.3-70b-versatile:
+ *   Meta's 70B model on Groq's hardware is one of the fastest free options available.
+ *   Streaming availability answers don't need a reasoning model — speed matters more.
  */
 export function getModel() {
   const groq = getGroqClient();
@@ -55,7 +56,7 @@ export function getModel() {
   //      Groq's API is Chat Completions-compatible but does NOT support the Responses API format.
   //      Without .chat(), the SDK sends Responses API requests → Groq rejects with
   //      "unsupported content types or unsupported content fields".
-  return groq.chat("qwen/qwen3.6-27b");
+  return groq.chat("llama-3.3-70b-versatile");
 }
 
 /**
