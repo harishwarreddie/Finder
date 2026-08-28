@@ -33,7 +33,6 @@ function getGroqClient() {
   return createOpenAI({
     baseURL: "https://api.groq.com/openai/v1",
     apiKey,
-    compatibility: "compatible", // Tells SDK: not 100% OpenAI, skip OpenAI-specific features
   });
 }
 

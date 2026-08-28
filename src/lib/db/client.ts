@@ -1,21 +1,4 @@
-// ── PRISMA CLIENT SINGLETON ───────────────────────────────────────────────────
-// In Next.js development, hot-reloading creates multiple Prisma instances.
-// This singleton pattern prevents "too many database connections" errors.
-
-import { PrismaClient } from "@prisma/client";
-
-const globalForPrisma = globalThis as unknown as {
-  prisma: PrismaClient | undefined;
-};
-
-export const prisma =
-  globalForPrisma.prisma ??
-  new PrismaClient({
-    log: process.env.NODE_ENV === "development"
-      ? ["query", "error", "warn"]
-      : ["error"],
-  });
-
-if (process.env.NODE_ENV !== "production") {
-  globalForPrisma.prisma = prisma;
-}
+// Database client — not configured in this deployment.
+// Prisma has been removed. This stub keeps any future imports from breaking at compile time.
+// To re-enable: add prisma and @prisma/client to package.json and set DATABASE_URL.
+export const prisma = null;
