@@ -421,9 +421,20 @@ async function runRecommendAgent(
     return "I couldn't find anything for that mood. Try a different genre?";
   }
 
+  // Explicit type avoids the self-referential inference error TypeScript raises
+  // when you write `typeof streamingOptions[0]` inside streamingOptions' own initializer.
+  type RecommendItem = {
+    title: string;
+    year: number | null;
+    type: string;
+    streaming: string[];
+    rentOptions: string[];
+    onSubscription: boolean;
+  };
+
   // Check watch providers for all results in parallel
   const providerChecks = await Promise.allSettled(
-    searchResults.map(async (r) => {
+    searchResults.map(async (r): Promise<RecommendItem> => {
       const prov =
         r.media_type === "movie"
           ? await getMovieWatchProviders(r.id)
@@ -443,9 +454,11 @@ async function runRecommendAgent(
   );
 
   // Keep only ones with streaming options, sort subscription-first
-  const streamingOptions = providerChecks
-    .filter((r) => r.status === "fulfilled" && (r as PromiseFulfilledResult<{ streaming: string[] }>).value.streaming.length > 0)
-    .map((r) => (r as PromiseFulfilledResult<typeof streamingOptions[0]>).value)
+  const streamingOptions: RecommendItem[] = providerChecks
+    .filter((r): r is PromiseFulfilledResult<RecommendItem> =>
+      r.status === "fulfilled" && r.value.streaming.length > 0
+    )
+    .map((r) => r.value)
     .sort((a, b) => (b.onSubscription ? 1 : 0) - (a.onSubscription ? 1 : 0))
     .slice(0, 4);
 
