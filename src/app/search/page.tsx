@@ -160,13 +160,15 @@ async function DirectSearchResults({ query }: { query: string }) {
             href={`/content/${r.mediaType}-${r.tmdbId}`}
             className="flex gap-4 p-4 rounded-xl border transition-colors group"
             style={{
-              background: "var(--surface)",
-              borderColor: "var(--border)",
+              background: "rgba(255,255,255,0.07)",
+              backdropFilter: "blur(12px)",
+              WebkitBackdropFilter: "blur(12px)",
+              borderColor: "rgba(255,255,255,0.12)",
             }}
           >
             {/* Poster */}
             <div className="flex-shrink-0 w-14 rounded-lg overflow-hidden"
-              style={{ background: "var(--surface-2)" }}>
+              style={{ background: "rgba(255,255,255,0.10)" }}>
               {r.posterUrl ? (
                 // eslint-disable-next-line @next/next/no-img-element
                 <img

@@ -1,5 +1,6 @@
 import { SearchBar } from "@/components/search/SearchBar";
 import { ExampleChips } from "@/components/home/ExampleChips";
+import { HeroSection } from "@/components/home/HeroSection";
 
 export default function HomePage() {
   return (
@@ -41,57 +42,29 @@ export default function HomePage() {
         }} />
       </div>
 
-      {/* ── Brand ── */}
-      <div style={{ position: "relative", zIndex: 1, textAlign: "center", marginBottom: 44, animation: "slide-up 0.55s ease both" }}>
-        <div style={{ display: "inline-flex", alignItems: "center", gap: 10, marginBottom: 18 }}>
-          <span style={{ fontSize: 30 }}>🎬</span>
-          <span style={{
-            fontSize: 20, fontWeight: 800, letterSpacing: "-0.02em",
-            background: "var(--grad-text)",
-            WebkitBackgroundClip: "text", WebkitTextFillColor: "transparent", backgroundClip: "text",
-          }}>
-            StreamFinder
-          </span>
-        </div>
-
-        <h1 style={{
-          fontSize: "clamp(2rem, 6vw, 3.8rem)",
-          fontWeight: 900,
-          letterSpacing: "-0.045em",
-          lineHeight: 1.08,
-          color: "var(--fg)",
-          marginBottom: 18,
-          textWrap: "balance",
-        } as React.CSSProperties}>
-          where&apos;s it{" "}
-          <span style={{
-            background: "var(--grad-text)",
-            WebkitBackgroundClip: "text",
-            WebkitTextFillColor: "transparent",
-            backgroundClip: "text",
-          }}>
-            streaming?
-          </span>
-        </h1>
-
-        <p style={{
-          color: "var(--muted)",
-          fontSize: 17,
-          lineHeight: 1.6,
-          maxWidth: 420,
-          margin: "0 auto",
-        }}>
-          Ask in plain English — get streaming availability,
-          rental prices, and the cheapest way to watch instantly.
-        </p>
+      {/* ── Hero: clapperboard + greeting + tagline ── */}
+      <div style={{
+        position: "relative",
+        zIndex: 1,
+        textAlign: "center",
+        marginBottom: 44,
+        animation: "slide-up 0.55s ease both",
+      }}>
+        <HeroSection />
       </div>
 
       {/* ── Search bar ── */}
-      <div style={{ position: "relative", zIndex: 1, width: "100%", maxWidth: 620, animation: "slide-up 0.55s 0.08s ease both", opacity: 0, animationFillMode: "forwards" }}>
+      <div style={{
+        position: "relative", zIndex: 1,
+        width: "100%", maxWidth: 620,
+        animation: "slide-up 0.55s 0.08s ease both",
+        opacity: 0,
+        animationFillMode: "forwards",
+      }}>
         <SearchBar />
       </div>
 
-      {/* ── Example chips (client component for hover effects) ── */}
+      {/* ── Example chips ── */}
       <ExampleChips />
 
       {/* ── Footer ── */}
@@ -100,7 +73,7 @@ export default function HomePage() {
         marginTop: 60, fontSize: 12, color: "var(--subtle)", textAlign: "center",
         animation: "fade-in 0.6s 0.3s ease both", opacity: 0, animationFillMode: "forwards",
       }}>
-        Legal streaming sources only · US region · Data from TMDB &amp; Watchmode
+        Legal streaming sources only · Data from TMDB &amp; Watchmode
       </p>
     </main>
   );
