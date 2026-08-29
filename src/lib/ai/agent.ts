@@ -453,17 +453,24 @@ async function runRecommendAgent(
     })
   );
 
-  // Keep only ones with streaming options, sort subscription-first
-  const streamingOptions: RecommendItem[] = providerChecks
-    .filter((r): r is PromiseFulfilledResult<RecommendItem> =>
-      r.status === "fulfilled" && r.value.streaming.length > 0
-    )
-    .map((r) => r.value)
+  // All fulfilled results (streaming or rent)
+  const allOptions: RecommendItem[] = providerChecks
+    .filter((r): r is PromiseFulfilledResult<RecommendItem> => r.status === "fulfilled")
+    .map((r) => r.value);
+
+  // Prefer titles with flatrate streaming; fall back to rent options
+  const streamingOptions: RecommendItem[] = allOptions
+    .filter((r) => r.streaming.length > 0)
     .sort((a, b) => (b.onSubscription ? 1 : 0) - (a.onSubscription ? 1 : 0))
     .slice(0, 4);
 
-  if (streamingOptions.length === 0) {
-    return `I found some ${searchQuery.replace("best ", "")} but none are currently streaming in your region (${region}). They may be available to rent.`;
+  const rentFallback: RecommendItem[] = allOptions
+    .filter((r) => r.streaming.length === 0 && r.rentOptions.length > 0)
+    .slice(0, 3);
+
+  // Nothing available at all
+  if (streamingOptions.length === 0 && rentFallback.length === 0) {
+    return `Nothing came up for that mood in your region (${region}) right now. Try a different genre?`;
   }
 
   // Format with AI
@@ -472,11 +479,17 @@ async function runRecommendAgent(
       ? `The user subscribes to: ${userSubscriptions.join(", ")}. Mark titles on their subscriptions with ✅.`
       : "";
 
+  const isRentOnly = streamingOptions.length === 0;
+  const optionsToShow = isRentOnly ? rentFallback : streamingOptions.slice(0, 3);
+  const availabilityNote = isRentOnly
+    ? `None of these are on a streaming subscription in ${region} right now — they're available to rent/buy. Mention this naturally.`
+    : "";
+
   const formatResult = await generateText({
     model: getModel(),
     system:
-      `You write short, personalized streaming recommendations. Given streaming options matching the user's mood, ` +
-      `write a conversational reply (4–6 lines max). ${subNote}\n\n` +
+      `You write short, personalized streaming recommendations. Given options matching the user's mood, ` +
+      `write a conversational reply (4–6 lines max). ${subNote} ${availabilityNote}\n\n` +
       `RULES:\n` +
       `- Lead with any title on the user's subscriptions (prefix it with ✅)\n` +
       `- Mention 2–3 titles max\n` +
@@ -487,7 +500,7 @@ async function runRecommendAgent(
     messages: [
       {
         role: "user",
-        content: `User wants: "${userQuery}"\n\nCurrently streaming: ${JSON.stringify(streamingOptions.slice(0, 3))}`,
+        content: `User wants: "${userQuery}"\n\nOptions: ${JSON.stringify(optionsToShow)}`,
       },
     ],
     maxOutputTokens: MODEL_CONFIG.maxTokens,
