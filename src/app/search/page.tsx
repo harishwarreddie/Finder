@@ -24,7 +24,11 @@ export async function generateMetadata({ searchParams }: SearchPageProps): Promi
   };
 }
 
-const NATURAL_LANGUAGE_PATTERNS = /^(where|what|is |find|can i|how|show me|i have|i want|give me|suggest)/i;
+// Matches natural-language queries (title lookups AND recommendation requests).
+// Recommendation keywords (recommend, suggest, something, in the mood…) route to
+// the AI chat interface where runRecommendAgent() handles them.
+const NATURAL_LANGUAGE_PATTERNS =
+  /^(where|what|is |find|can i|how|show me|i have|i want|give me|suggest|recommend|something|in the mood|feel like|looking for|any good|best |top )/i;
 
 export default async function SearchPage({ searchParams }: SearchPageProps) {
   const params = await searchParams;

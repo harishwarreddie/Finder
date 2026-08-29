@@ -12,6 +12,14 @@
 //     3. AI formats the final answer from the raw data (plain text generation, no tools)
 //
 //   This is faster (~2-3s vs 45s), more reliable, and sidesteps all tool-format issues.
+//
+// IMPROVEMENTS v2:
+//   • Recommendation mode  — detects mood/genre queries, discovers streaming titles
+//   • Not-available pivot  — suggests similar titles that ARE streaming
+//   • Stale-data disclaimer — every answer ends with a freshness note
+//   • Tighter format prompt — subscription-first, max 4 services, no filler
+//   • Region-aware          — region is now passed from the client's locale detection
+//   • Deeper context window — title extraction now uses last 6 messages (was 3)
 
 import { generateText } from "ai";
 import { getModel, MODEL_CONFIG } from "./provider";
@@ -19,6 +27,8 @@ import {
   searchMulti,
   getMovieWatchProviders,
   getTVWatchProviders,
+  getSimilarMovies,
+  getSimilarTVShows,
 } from "@/lib/api/tmdb";
 
 // ── TYPES ─────────────────────────────────────────────────────────────────────
@@ -27,6 +37,43 @@ export type AgentMessage = {
   role: "user" | "assistant";
   content: string;
 };
+
+// ── RECOMMENDATION CONSTANTS ──────────────────────────────────────────────────
+//
+// RECOMMEND_RE: matches queries that ask for suggestions rather than a specific title.
+// Must NOT fire when a specific title is mentioned (e.g. "suggest me Inception" still
+// goes through the title-lookup path because extracted title won't be UNKNOWN).
+// The recommendation path only activates when title extraction returns UNKNOWN.
+
+const RECOMMEND_RE =
+  /\b(recommend|suggest( me)?|something (to watch|scary|funny|good|dark|light|short)|what (should|to) watch|in the mood (for|to)|feel like watching|looking for (a |something)|any good (movies?|shows?|films?)|give me (a |some))\b/i;
+
+// Keyword → TMDB search query for that genre/mood.
+// Ordered so more specific terms appear before generic ones.
+const GENRE_QUERY: [RegExp, string][] = [
+  [/\b(horror|scary|spooky|creepy|frightening)\b/i,         "best horror movies"],
+  [/\b(comedy|funny|hilarious|laugh|humour|humor)\b/i,      "best comedy movies"],
+  [/\b(thriller|suspense|tense)\b/i,                        "best thriller movies"],
+  [/\b(action|explosive|fight|superhero)\b/i,               "best action movies"],
+  [/\b(romance|romantic|love story)\b/i,                    "best romance movies"],
+  [/\b(sci.?fi|science fiction|space|futuristic)\b/i,       "best science fiction movies"],
+  [/\b(drama|emotional|heavy|intense)\b/i,                  "best drama movies"],
+  [/\b(animated|animation|cartoon)\b/i,                     "best animated movies"],
+  [/\b(documentary|docuseries|true story|real)\b/i,         "best documentaries"],
+  [/\b(mystery|whodunit|detective)\b/i,                     "best mystery movies"],
+  [/\b(crime|heist|gangster|mob)\b/i,                       "best crime movies"],
+  [/\b(fantasy|magic|wizard|mythical)\b/i,                  "best fantasy movies"],
+  [/\b(adventure|travel|explore)\b/i,                       "best adventure movies"],
+  [/\b(family|kids|children)\b/i,                           "best family movies"],
+  [/\b(tv show|series|binge|season)\b/i,                    "best tv series"],
+];
+
+function extractSearchQuery(text: string): string {
+  for (const [pattern, query] of GENRE_QUERY) {
+    if (pattern.test(text)) return query;
+  }
+  return "popular movies streaming now";
+}
 
 // ── AGENT ─────────────────────────────────────────────────────────────────────
 
@@ -40,26 +87,17 @@ export async function runAgent(
     _knownMediaType?: "movie" | "tv";
   } = {}
 ) {
-  const { region = "US", userSubscriptions = [], _knownTitle, _knownYear, _knownMediaType } = options;
-
-  // ── STEP 1: Extract the title ───────────────────────────────────────────────
-  // What: ask the model to pull the movie/TV title out of the conversation.
-  //
-  // _knownTitle shortcut: when handlePick already identified the title from the
-  // disambiguation list, skip AI extraction entirely.
-  // Why: the recursive call with "Inception" as the last user message confuses the
-  //   model — it sees the full disambiguation history and returns UNKNOWN because
-  //   it thinks the user "just repeated the title". Injecting the known title
-  //   bypasses that confusion completely.
+  const {
+    region = "US",
+    userSubscriptions = [],
+    _knownTitle,
+    _knownYear,
+    _knownMediaType,
+  } = options;
 
   // ── PRE-CHECK: Fast code-side disambiguation pick ──────────────────────────
-  // What: before calling AI, check if the user is responding to a pending numbered list
-  //   with a pick in any common format.
-  // Why: the AI reliably detects "1" but struggles with "what about 3", ordinals, etc.
-  //   Handling it in code costs zero tokens and supports every reasonable variation:
-  //   "2", "what about 3", "option 4", "#2", "the second one", "first", "2nd", etc.
-  // Guard: only fires when a disambiguation list exists AND the message is short (< 30 chars)
-  //   — prevents false matches on real titles like "Spider-Man 2".
+  // What: before calling AI, check if the user is responding to a pending numbered list.
+  // Guard: only fires when a disambiguation list exists AND the message is short (< 30 chars).
 
   if (!_knownTitle) {
     const ORDINALS: Record<string, number> = {
@@ -69,7 +107,7 @@ export async function runAgent(
 
     const lastMsg = messages[messages.length - 1]?.content?.trim() ?? "";
     const pendingList = [...messages]
-      .slice(0, -1) // exclude the user's current message
+      .slice(0, -1)
       .reverse()
       .find((m) => m.role === "assistant" && /\d+\.\s+/.test(m.content));
 
@@ -87,16 +125,14 @@ export async function runAgent(
     }
   }
 
+  // ── STEP 1: Extract the title ───────────────────────────────────────────────
+
   let extracted: string;
 
   if (_knownTitle) {
     extracted = _knownTitle;
     console.log("[agent] using known title (from pick):", extracted);
   } else {
-    // Ask the model to wrap the title in <title>…</title> tags.
-    // Why tags: qwen3.6-27b outputs a chain-of-thought reasoning block before its answer,
-    //   so titleResult.text contains pages of thinking + the title. A specific XML tag
-    //   lets us pull out just the title regardless of surrounding text.
     const titleResult = await generateText({
       model: getModel(),
       system:
@@ -111,55 +147,53 @@ export async function runAgent(
         "- If the user is picking from a numbered list (e.g. replies '1' or '2'), output <title>PICK:NUMBER</title>.\n" +
         "- If no clear title, output <title>UNKNOWN</title>.\n" +
         "Output the tag and nothing else.",
-      messages: messages.slice(-3), // Last 3 messages give enough context
-      maxOutputTokens: 300,          // Generous: model may think before outputting the tag
+      // Use last 6 messages for better context (e.g. resolves "what about the sequel?")
+      messages: messages.slice(-6),
+      maxOutputTokens: 300,
       temperature: 0,
       maxRetries: 0,
     });
 
-    // Parse the title from the model response — multi-step to handle the thinking model:
-    //   qwen3.6-27b always emits a reasoning block before answering, in two possible formats:
-    //   (a) <think>…reasoning…</think> then the actual tag
-    //   (b) Plain "Thinking Process: …" text then the tag
-    //   The <think> block sometimes ends up INSIDE the <title> tag, contaminating the value.
-    //   Strategy: strip <think> blocks, then parse <title>, then fall back to "Title: X" pattern.
     const fullText = titleResult.text ?? "";
     console.log("[agent] raw model output:", JSON.stringify(fullText.slice(0, 200)));
 
     const cleanText = fullText
-      .replace(/<think>[\s\S]*?<\/think>/gi, "") // Remove complete <think>…</think> blocks
-      .replace(/<think>[\s\S]*/gi, "")           // Remove unclosed <think> (cut off by token limit)
+      .replace(/<think>[\s\S]*?<\/think>/gi, "")
+      .replace(/<think>[\s\S]*/gi, "")
       .trim();
 
-    // [\s\S]*? (not .*?) so the match works when the model puts the value on a new line
     const tagMatch = cleanText.match(/<title>([\s\S]*?)<\/title>/i);
     if (tagMatch) {
       extracted = tagMatch[1].trim() || "UNKNOWN";
     } else {
-      // Fallback: look for "Title: Something" in the plain-text thinking format
       const titleLineMatch = cleanText.match(/Title:\s*([^\n*]+)/i);
       if (titleLineMatch) {
         extracted = titleLineMatch[1].replace(/[*_`]/g, "").trim() || "UNKNOWN";
       } else {
-        // Last resort: if what's left is short, treat it as the title itself
         extracted = cleanText.length > 0 && cleanText.length < 80 ? cleanText : "UNKNOWN";
       }
     }
     console.log("[agent] extracted:", extracted);
 
-    // Handle disambiguation picks: user replied "1" or "2" after we listed options
     if (extracted.startsWith("PICK:")) {
       return handlePick(extracted, messages, region);
     }
 
+    // ── RECOMMENDATION MODE ─────────────────────────────────────────────────
+    // Fire when no clear title found AND the query looks like a recommendation request.
+    // This means the user wants suggestions, not a specific title lookup.
+
     if (!extracted || extracted === "UNKNOWN") {
+      const lastUserMsg = messages[messages.length - 1]?.content ?? "";
+      if (RECOMMEND_RE.test(lastUserMsg)) {
+        console.log("[agent] switching to recommendation mode");
+        return runRecommendAgent(lastUserMsg, { region, userSubscriptions });
+      }
       return "I'm not sure which title you mean. Could you mention the movie or TV show name?";
     }
   }
 
   // ── STEP 2: Search TMDB ─────────────────────────────────────────────────────
-  // What: find the title in TMDB's database to get its ID.
-  // Why code instead of AI tool: direct API call → no SDK tool-format issues.
 
   let searchResults;
   try {
@@ -176,15 +210,9 @@ export async function runAgent(
   }
 
   // ── STEP 3: Pick the right result ──────────────────────────────────────────
-  // What: identify which search result to use.
-  // Two paths:
-  //   A) _knownYear/_knownMediaType set (user just picked from a list) → find the exact
-  //      matching result by year + type so we never show the disambiguation list twice.
-  //   B) Fresh search → disambiguate if there are multiple meaningfully different titles.
 
   let topResult = searchResults[0];
 
-  // Path A: user already made a pick — match by year and/or media type
   if (_knownYear || _knownMediaType) {
     const exact = searchResults.find((r) => {
       const resultYear = r.release_date
@@ -197,20 +225,7 @@ export async function runAgent(
       return yearOk && typeOk;
     });
     if (exact) topResult = exact;
-    // If no exact match (unusual), fall through with topResult = first result
   } else {
-    // Path B: fresh search — disambiguate only when genuinely ambiguous.
-    //
-    // Skip disambiguation when the top result is a clear dominant winner:
-    //   1. POPULARITY_DOMINANT: top result is popular (>15) AND at least 4x more popular
-    //      than the second result. E.g. "Oppenheimer" → 2023 Nolan film (pop ~500) vs some
-    //      obscure 1980 documentary (pop ~5) — no need to ask.
-    //   2. EXACT_TITLE_MATCH: user typed the exact title of the top result AND it has
-    //      significant votes (>300), suggesting it's the well-known version.
-    //      E.g. "Spider-Man 2" exactly matches the 2004 film.
-    //
-    // Still disambiguates for genuinely split cases like "Batman" (many popular results).
-
     const secondResult = searchResults[1];
     const namesAreDifferent =
       secondResult &&
@@ -221,9 +236,7 @@ export async function runAgent(
       ? (secondResult as { popularity?: number }).popularity ?? 0
       : 0;
 
-    const isDominant =
-      topPop > 15 && (!secondResult || topPop > secondPop * 4);
-
+    const isDominant   = topPop > 15 && (!secondResult || topPop > secondPop * 4);
     const isExactMatch =
       (topResult.title ?? topResult.name ?? "").toLowerCase() === extracted.toLowerCase() &&
       ((topResult as { vote_count?: number }).vote_count ?? 0) > 300;
@@ -247,8 +260,6 @@ export async function runAgent(
   }
 
   // ── STEP 4: Fetch watch providers ──────────────────────────────────────────
-  // What: get which streaming platforms have this title in the user's region.
-  // Source: TMDB Watch Providers (powered by JustWatch) — unlimited & free.
 
   let providers;
   try {
@@ -262,10 +273,7 @@ export async function runAgent(
 
   const regionData = providers.results[region.toUpperCase()] ?? null;
 
-  // ── STEP 5: Format the answer ───────────────────────────────────────────────
-  // What: give the AI the raw availability data and ask it to write a clean reply.
-  // Why plain text generation (no tools): we already have all the data — the AI's only
-  //   job here is to format it nicely. No tool calls needed → no format issues.
+  // ── STEP 5: Build data for the format step ─────────────────────────────────
 
   const title = topResult.title ?? topResult.name ?? "Unknown";
   const year = topResult.release_date
@@ -273,6 +281,52 @@ export async function runAgent(
     : topResult.first_air_date
     ? new Date(topResult.first_air_date).getFullYear()
     : null;
+
+  const hasStreaming =
+    (regionData?.flatrate?.length ?? 0) > 0 || (regionData?.free?.length ?? 0) > 0;
+
+  // ── NOT-AVAILABLE PIVOT ────────────────────────────────────────────────────
+  // When there's nothing free/subscription, fetch similar titles that ARE streaming
+  // so the AI can suggest alternatives rather than just saying "not available."
+
+  let streamingAlternatives: { title: string; year: number | null; streaming: string[] }[] = [];
+
+  if (!hasStreaming) {
+    try {
+      const similar =
+        topResult.media_type === "movie"
+          ? await getSimilarMovies(topResult.id)
+          : await getSimilarTVShows(topResult.id);
+
+      const altChecks = await Promise.allSettled(
+        similar.results.slice(0, 6).map(async (r) => {
+          const prov =
+            topResult.media_type === "movie"
+              ? await getMovieWatchProviders(r.id)
+              : await getTVWatchProviders(r.id);
+          const rd = prov.results[region.toUpperCase()] ?? null;
+          const streaming = rd?.flatrate?.map((p) => p.provider_name) ?? [];
+          if (streaming.length === 0) return null;
+          const altTitle = r.title ?? r.name ?? "Unknown";
+          const altYear = r.release_date
+            ? new Date(r.release_date).getFullYear()
+            : r.first_air_date
+            ? new Date(r.first_air_date).getFullYear()
+            : null;
+          return { title: altTitle, year: altYear, streaming };
+        })
+      );
+
+      streamingAlternatives = altChecks
+        .filter((r) => r.status === "fulfilled" && r.value !== null)
+        .map((r) => (r as PromiseFulfilledResult<typeof streamingAlternatives[0] | null>).value!)
+        .slice(0, 3);
+    } catch {
+      // Non-fatal: just proceed without alternatives
+    }
+  }
+
+  // ── Build the data object passed to the AI format step ────────────────────
 
   const dataForAI = regionData
     ? {
@@ -285,36 +339,53 @@ export async function runAgent(
         rent: regionData.rent?.map((p) => p.provider_name) ?? [],
         buy: regionData.buy?.map((p) => p.provider_name) ?? [],
         justWatchLink: regionData.link ?? null,
+        ...(streamingAlternatives.length > 0 && { streamingAlternatives }),
       }
-    : { title, year, type: topResult.media_type, region, notAvailable: true };
+    : {
+        title,
+        year,
+        type: topResult.media_type === "tv" ? "TV Show" : "Movie",
+        region,
+        notAvailable: true,
+        streamingAlternatives,
+      };
+
+  // ── STEP 6: Format the answer ───────────────────────────────────────────────
 
   const subscriptionNote =
     userSubscriptions.length > 0
-      ? `\nThe user has these subscriptions: ${userSubscriptions.join(", ")}. ` +
-        `Check if the title is in the subscription list in the data. ` +
-        `If it is on one of their services, lead with that — say they can watch it now with their subscription. ` +
-        `If none of their services have it, mention that clearly upfront before listing other options.`
+      ? `\n\nThe user subscribes to: ${userSubscriptions.join(", ")}. ` +
+        `If ANY subscription platform appears in the data, lead with "✅ You've got it on [Service]!" ` +
+        `If none of their subscriptions cover it, open with "🚫 Not on your subscriptions — " then list alternatives.`
       : "";
+
+  const userQuestion = messages[messages.length - 1]?.content ?? "";
 
   const formatResult = await generateText({
     model: getModel(),
     system:
-      "You format streaming availability data into a short, clear reply. " +
-      "List platforms by type: subscription, free, rent, buy. " +
-      "If a category is empty, skip it. " +
-      "If notAvailable is true, say the title isn't currently available for streaming in that region. " +
-      "Be concise — 2-5 lines max. No markdown headers." +
+      `You write ultra-concise streaming availability answers. Speak directly to the user.\n\n` +
+      `STRICT RULES:\n` +
+      `1. Subscription check: if user subscriptions match a streaming platform → lead with "✅ [Title] is on [Service]!"\n` +
+      `2. Order services: subscription → free → rent → buy. Show MAX 4 services total.\n` +
+      `3. Skip any category that's empty — do not write empty lines or dashes.\n` +
+      `4. If notAvailable is true → say "[Title] isn't streaming in [region] right now."\n` +
+      `   - If rent/buy options exist → "But you can rent/buy on [platforms]."\n` +
+      `   - If streamingAlternatives exist → "You might like [Title] instead — it's on [Platform]."\n` +
+      `5. End EVERY response (unavailable or not) with this exact line: "_Availability from TMDB · may have changed._"\n` +
+      `6. No markdown headers, no bullet dashes. Max 6 lines total. Be conversational, not robotic.` +
       subscriptionNote,
     messages: [
-      { role: "user", content: `Data: ${JSON.stringify(dataForAI)}` },
+      {
+        role: "user",
+        content: `User asked: "${userQuestion}"\n\nData: ${JSON.stringify(dataForAI)}`,
+      },
     ],
     maxOutputTokens: MODEL_CONFIG.maxTokens,
     temperature: MODEL_CONFIG.temperature,
     maxRetries: 0,
   });
 
-  // Strip <think>…</think> reasoning blocks from the format response — same issue as
-  // in the title extraction step: qwen3.6-27b prepends its chain-of-thought to the reply.
   const rawFormat = formatResult.text ?? "";
   const cleanFormat = rawFormat
     .replace(/<think>[\s\S]*?<\/think>/gi, "")
@@ -325,12 +396,109 @@ export async function runAgent(
   return cleanFormat || buildFallbackText(title, year, regionData, region);
 }
 
+// ── RECOMMENDATION AGENT ──────────────────────────────────────────────────────
+// Called when the user asks for suggestions rather than a specific title.
+// Searches TMDB by mood/genre, checks streaming availability, returns top picks.
+
+async function runRecommendAgent(
+  userQuery: string,
+  options: { region: string; userSubscriptions: string[] }
+): Promise<string> {
+  const { region, userSubscriptions } = options;
+  const searchQuery = extractSearchQuery(userQuery);
+  console.log("[recommend] query:", searchQuery);
+
+  // Search TMDB for titles matching the mood/genre
+  let searchResults;
+  try {
+    const res = await searchMulti(searchQuery);
+    searchResults = res.results.filter((r) => r.media_type !== "person").slice(0, 8);
+  } catch {
+    return "I had trouble finding recommendations right now. Please try again.";
+  }
+
+  if (searchResults.length === 0) {
+    return "I couldn't find anything for that mood. Try a different genre?";
+  }
+
+  // Check watch providers for all results in parallel
+  const providerChecks = await Promise.allSettled(
+    searchResults.map(async (r) => {
+      const prov =
+        r.media_type === "movie"
+          ? await getMovieWatchProviders(r.id)
+          : await getTVWatchProviders(r.id);
+      const rd = prov.results[region.toUpperCase()] ?? null;
+      const streaming = rd?.flatrate?.map((p) => p.provider_name) ?? [];
+      const rentOptions = rd?.rent?.map((p) => p.provider_name) ?? [];
+      const altTitle = r.title ?? r.name ?? "Unknown";
+      const altYear = r.release_date
+        ? new Date(r.release_date).getFullYear()
+        : r.first_air_date
+        ? new Date(r.first_air_date).getFullYear()
+        : null;
+      const onSubscription = streaming.some((s) => userSubscriptions.includes(s));
+      return { title: altTitle, year: altYear, type: r.media_type === "tv" ? "TV Show" : "Movie", streaming, rentOptions, onSubscription };
+    })
+  );
+
+  // Keep only ones with streaming options, sort subscription-first
+  const streamingOptions = providerChecks
+    .filter((r) => r.status === "fulfilled" && (r as PromiseFulfilledResult<{ streaming: string[] }>).value.streaming.length > 0)
+    .map((r) => (r as PromiseFulfilledResult<typeof streamingOptions[0]>).value)
+    .sort((a, b) => (b.onSubscription ? 1 : 0) - (a.onSubscription ? 1 : 0))
+    .slice(0, 4);
+
+  if (streamingOptions.length === 0) {
+    return `I found some ${searchQuery.replace("best ", "")} but none are currently streaming in your region (${region}). They may be available to rent.`;
+  }
+
+  // Format with AI
+  const subNote =
+    userSubscriptions.length > 0
+      ? `The user subscribes to: ${userSubscriptions.join(", ")}. Mark titles on their subscriptions with ✅.`
+      : "";
+
+  const formatResult = await generateText({
+    model: getModel(),
+    system:
+      `You write short, personalized streaming recommendations. Given streaming options matching the user's mood, ` +
+      `write a conversational reply (4–6 lines max). ${subNote}\n\n` +
+      `RULES:\n` +
+      `- Lead with any title on the user's subscriptions (prefix it with ✅)\n` +
+      `- Mention 2–3 titles max\n` +
+      `- Format each: "[Title] ([Year]) — [Platform]. One sentence on why it fits their mood."\n` +
+      `- Match your description tone to the user's mood (scary request → atmospheric language)\n` +
+      `- End with: "_Want something different? Just describe another mood._"\n` +
+      `- No numbered lists, no markdown headers`,
+    messages: [
+      {
+        role: "user",
+        content: `User wants: "${userQuery}"\n\nCurrently streaming: ${JSON.stringify(streamingOptions.slice(0, 3))}`,
+      },
+    ],
+    maxOutputTokens: MODEL_CONFIG.maxTokens,
+    temperature: 0.3,
+    maxRetries: 0,
+  });
+
+  const raw = formatResult.text ?? "";
+  const clean = raw
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/<think>[\s\S]*/gi, "")
+    .trim();
+
+  return (
+    clean ||
+    streamingOptions
+      .slice(0, 3)
+      .map((o) => `${o.title} (${o.year ?? "?"}) — ${o.streaming[0]}`)
+      .join("\n")
+  );
+}
+
 // ── HELPERS ───────────────────────────────────────────────────────────────────
 
-// handlePick: user replied "1" after we showed a disambiguation list.
-// We re-read the previous assistant message to find which title they picked,
-// then call runAgent with _knownTitle to skip AI extraction (the recursive call
-// with conversation history confuses the model into returning UNKNOWN).
 async function handlePick(
   extracted: string,
   messages: AgentMessage[],
@@ -338,19 +506,11 @@ async function handlePick(
 ): Promise<string> {
   const pickNum = parseInt(extracted.replace("PICK:", ""), 10) - 1;
 
-  // What: find the most recent assistant message that contains a numbered list.
-  // Why not just the most recent assistant message: after the user picks "1" and gets
-  //   streaming info, the conversation has more assistant messages (the streaming answer,
-  //   error messages, etc.). If the user then says "what about 3", we need to look back
-  //   to find the original disambiguation list, not the streaming answer.
   const prevAssistant = [...messages]
     .reverse()
     .find((m) => m.role === "assistant" && /\d+\.\s+/.test(m.content));
   if (!prevAssistant) return "I lost track of the options. Could you repeat the title?";
 
-  // Parse the numbered list — handle both newline-separated and flat (spaces only) formats.
-  // Why two approaches: chat UIs sometimes strip \n from stored messages, turning
-  //   "1. Inception\n2. Batman" into "1. Inception  2. Batman" in the history.
   let lines = prevAssistant.content.split("\n").filter((l) => /^\d+\./.test(l.trim()));
   if (lines.length === 0) {
     lines = Array.from(
@@ -361,26 +521,23 @@ async function handlePick(
   const picked = lines[pickNum];
   if (!picked) return "I couldn't match that number to the list. Could you name the title directly?";
 
-  // Extract title from "1. Inception (2010) — Movie" → "Inception"
   const titleMatch = picked.match(/^\d+\.\s+(.+?)(?:\s+\(\d{4}\))?(?:\s+—|$)/);
   if (!titleMatch) return "I couldn't read that choice. Could you name the title directly?";
 
   const knownTitle = titleMatch[1].trim();
-
-  // Also parse year and media type from "1. Inception (2010) — Movie"
-  // so runAgent can find the exact result without asking the user to disambiguate again.
   const yearMatch = picked.match(/\((\d{4})\)/);
   const knownYear = yearMatch ? parseInt(yearMatch[1]) : null;
   const knownMediaType = picked.includes("TV Show") ? "tv" : "movie";
   console.log("[agent] pick resolved:", knownTitle, knownYear, knownMediaType);
 
-  // Use _knownTitle to bypass AI extraction — avoids the model getting confused
-  // by seeing "Inception" after a disambiguation list and returning UNKNOWN.
-  // Use _knownYear + _knownMediaType to skip re-disambiguation on the same results.
-  return runAgent(messages, { region, _knownTitle: knownTitle, _knownYear: knownYear, _knownMediaType: knownMediaType });
+  return runAgent(messages, {
+    region,
+    _knownTitle: knownTitle,
+    _knownYear: knownYear,
+    _knownMediaType: knownMediaType,
+  });
 }
 
-// buildFallbackText: generates a plain text answer if the AI formatting step fails.
 function buildFallbackText(
   title: string,
   year: number | null,
@@ -396,7 +553,7 @@ function buildFallbackText(
   const label = `${title}${year ? ` (${year})` : ""} · ${region}`;
 
   if (!regionData) {
-    return `${label}\n\nNot currently available for streaming in ${region}.`;
+    return `${label}\n\nNot currently available for streaming in ${region}.\n\n_Availability from TMDB · may have changed._`;
   }
 
   const lines: string[] = [label, ""];
@@ -413,5 +570,6 @@ function buildFallbackText(
   if (lines.length === 2)
     lines.push(`Not currently available for streaming in ${region}.`);
 
+  lines.push("\n_Availability from TMDB · may have changed._");
   return lines.join("\n");
 }
