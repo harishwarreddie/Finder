@@ -6,6 +6,7 @@
 import type { Metadata } from "next";
 import { SearchBar } from "@/components/search/SearchBar";
 import { ChatWithSubscriptions } from "@/components/ai/ChatWithSubscriptions";
+import { HomeButton } from "@/components/nav/HomeButton";
 import { searchMulti, tmdbPosterUrl } from "@/lib/api/tmdb";
 
 interface SearchPageProps {
@@ -54,7 +55,12 @@ export default async function SearchPage({ searchParams }: SearchPageProps) {
     <main style={{ position: "relative", minHeight: "100dvh", background: "var(--bg)", overflow: "hidden" }}>
       <Orbs />
       <div style={{ position: "relative", zIndex: 1, maxWidth: 720, margin: "0 auto", padding: "2rem 1rem 4rem" }}>
-        {/* Search bar at top */}
+        {/* Home button */}
+        <div style={{ marginBottom: 20 }}>
+          <HomeButton />
+        </div>
+
+        {/* Search bar */}
         <div style={{ marginBottom: 28 }}>
           <SearchBar initialValue={query} />
         </div>
