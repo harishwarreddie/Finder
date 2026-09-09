@@ -130,9 +130,9 @@ export function SearchBar({ initialValue = "" }: { initialValue?: string }) {
           maxHeight: 204,
           overflowY: "auto",
           overflowX: "hidden",
-          background: "rgb(22, 20, 46)",
-          border: "1px solid rgba(124,58,237,0.30)",
-          boxShadow: "0 24px 64px rgba(0,0,0,0.80), 0 0 0 1px rgba(124,58,237,0.20)",
+          background: "linear-gradient(135deg, rgb(26,16,50) 0%, rgb(30,14,36) 50%, rgb(10,22,34) 100%)",
+          border: "1px solid rgba(167,139,250,0.25)",
+          boxShadow: "0 24px 64px rgba(0,0,0,0.85), 0 0 0 1px rgba(244,114,182,0.12)",
           zIndex: 9999,
           isolation: "isolate",
           scrollbarWidth: "thin",
@@ -158,7 +158,7 @@ export function SearchBar({ initialValue = "" }: { initialValue?: string }) {
                 minHeight: 68,
                 boxSizing: "border-box",
               }}
-              onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "rgb(42, 32, 88)"}
+              onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "linear-gradient(135deg, rgba(167,139,250,0.18) 0%, rgba(244,114,182,0.14) 50%, rgba(103,232,249,0.10) 100%)"}
               onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "transparent"}
             >
               {s.posterUrl ? (
