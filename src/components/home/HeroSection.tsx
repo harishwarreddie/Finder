@@ -37,10 +37,11 @@ function playClap() {
 }
 
 export function HeroSection() {
-  const [idx,     setIdx]    = useState(0);
-  const [fade,    setFade]   = useState(true);
-  const [clamped, setClamped] = useState(false);
-  const [tilt,    setTilt]   = useState({ x: 3, y: -10 });
+  const [idx,      setIdx]     = useState(0);
+  const [fade,     setFade]    = useState(true);
+  const [clamped,  setClamped] = useState(false);
+  const [bouncing, setBouncing] = useState(false);
+  const [tilt,     setTilt]    = useState({ x: 3, y: -10 });
   const clampedRef = useRef(false);
 
   // Language cycling
@@ -52,13 +53,29 @@ export function HeroSection() {
     return () => clearInterval(iv);
   }, []);
 
-  // Clap sound + snap on every search-bar focus
+  // Restore clamped state across page navigations (sessionStorage)
   useEffect(() => {
-    function onClap() {
-      playClap(); // always play sound
-      if (!clampedRef.current) {
+    try {
+      if (sessionStorage.getItem("sf-board-clamped") === "1") {
         clampedRef.current = true;
         setClamped(true);
+      }
+    } catch { /* ignore */ }
+  }, []);
+
+  // Clap event — snap + sound on first entry, bounce + sound on re-entries
+  useEffect(() => {
+    function onClap() {
+      if (!clampedRef.current) {
+        // First time: snap shut, play sound at moment of impact
+        clampedRef.current = true;
+        setClamped(true);
+        try { sessionStorage.setItem("sf-board-clamped", "1"); } catch { /* ignore */ }
+        setTimeout(playClap, 85); // 85ms = end of 90ms snap animation
+      } else {
+        // Already shut: mini bounce + sound immediately
+        playClap();
+        setBouncing(true);
       }
     }
     window.addEventListener("searchClap", onClap);
@@ -84,6 +101,12 @@ export function HeroSection() {
         @keyframes board-float {
           0%, 100% { transform: translateY(0px);   }
           50%       { transform: translateY(-10px); }
+        }
+        @keyframes flap-bounce {
+          0%   { transform: rotateX(0deg); }
+          35%  { transform: rotateX(-10deg); }
+          65%  { transform: rotateX(2deg); }
+          100% { transform: rotateX(0deg); }
         }
         .hero-row {
           display: flex;
@@ -115,15 +138,18 @@ export function HeroSection() {
             onMouseLeave={handleMouseLeave}
           >
             {/* Clapper flap — starts OPEN, snaps shut on first search focus */}
-            <div style={{
+            <div
+              onAnimationEnd={() => setBouncing(false)}
+              style={{
               width: 170,
               height: 42,
               borderRadius: "8px 8px 0 0",
               overflow: "hidden",
               transformOrigin: "bottom center",
               transformStyle: "preserve-3d",
-              transform: clamped ? "rotateX(0deg)" : "rotateX(-40deg)",
-              transition: clamped ? "transform 0.1s cubic-bezier(0.22,0,0.36,1)" : "none",
+              transform: bouncing ? undefined : clamped ? "rotateX(0deg)" : "rotateX(-40deg)",
+              animation: bouncing ? "flap-bounce 0.22s ease-out forwards" : "none",
+              transition: !bouncing && clamped ? "transform 0.09s cubic-bezier(0.22,0,0.36,1)" : "none",
               position: "relative",
               zIndex: 2,
               background: `repeating-linear-gradient(

@@ -46,7 +46,7 @@ export type AgentMessage = {
 // The recommendation path only activates when title extraction returns UNKNOWN.
 
 const RECOMMEND_RE =
-  /\b(recommend|suggest( me)?|something (to watch|scary|funny|good|dark|light|short)|what (should|to) watch|in the mood (for|to)|feel like watching|looking for (a |something)|any good (movies?|shows?|films?)|give me (a |some))\b/i;
+  /\b(recommend|suggest( me)?|something (to watch|scary|funny|good|dark|light|short)|what (should|to|can i) watch|what.?s (free|on|available|streaming)|free to watch|available (to me|on|for)|in the mood (for|to)|feel like watching|find (me )?(a |some|something)|looking for (a |something)|any good (movies?|shows?|films?)|give me (a |some)|i (have|got|use|subscribe to) (netflix|prime|amazon|hulu|disney|max|apple|peacock|paramount|hbo)|what.?s good|what.?s (on|new))\b|^[\s\p{Emoji}]+$/iu;
 
 // Keyword → TMDB search query for that genre/mood.
 // Ordered so more specific terms appear before generic ones.
@@ -66,6 +66,7 @@ const GENRE_QUERY: [RegExp, string][] = [
   [/\b(adventure|travel|explore)\b/i,                       "best adventure movies"],
   [/\b(family|kids|children)\b/i,                           "best family movies"],
   [/\b(tv show|series|binge|season)\b/i,                    "best tv series"],
+  [/\b(cheap|cheapest|budget|under \$|low.?cost)\b/i,       "popular movies streaming now"],
 ];
 
 function extractSearchQuery(text: string): string {
@@ -361,20 +362,29 @@ export async function runAgent(
 
   const userQuestion = messages[messages.length - 1]?.content ?? "";
 
+  // Detect intent modifiers that change how the answer is framed
+  const isCheapestQuery = /\b(cheapest|cheapest way|under \$|budget|cheap|low.?cost|how much|price)\b/i.test(userQuestion);
+  const cheapestNote = isCheapestQuery
+    ? `\n\nThe user wants the cheapest option. Lead with rent/buy options if they exist (e.g. "Cheapest is to rent on [Platform]"). ` +
+      `If it's included on a subscription, mention that as "best value if you already have [Service]". ` +
+      `Note that exact prices vary — direct the user to check the platform for current pricing.`
+    : "";
+
   const formatResult = await generateText({
     model: getModel(),
     system:
       `You write ultra-concise streaming availability answers. Speak directly to the user.\n\n` +
       `STRICT RULES:\n` +
       `1. Subscription check: if user subscriptions match a streaming platform → lead with "✅ [Title] is on [Service]!"\n` +
-      `2. Order services: subscription → free → rent → buy. Show MAX 4 services total.\n` +
+      `2. Default order: subscription → free → rent → buy. Show MAX 4 services total.\n` +
       `3. Skip any category that's empty — do not write empty lines or dashes.\n` +
       `4. If notAvailable is true → say "[Title] isn't streaming in [region] right now."\n` +
       `   - If rent/buy options exist → "But you can rent/buy on [platforms]."\n` +
       `   - If streamingAlternatives exist → "You might like [Title] instead — it's on [Platform]."\n` +
       `5. End EVERY response (unavailable or not) with this exact line: "_Availability from TMDB · may have changed._"\n` +
       `6. No markdown headers, no bullet dashes. Max 6 lines total. Be conversational, not robotic.` +
-      subscriptionNote,
+      subscriptionNote +
+      cheapestNote,
     messages: [
       {
         role: "user",
@@ -400,13 +410,40 @@ export async function runAgent(
 // Called when the user asks for suggestions rather than a specific title.
 // Searches TMDB by mood/genre, checks streaming availability, returns top picks.
 
+// Detect if the user is asking about a specific service they have
+const SERVICE_MAP: [RegExp, string][] = [
+  [/\b(amazon|prime\b)/i,   "Amazon Prime Video"],
+  [/\bnetflix\b/i,          "Netflix"],
+  [/\bhulu\b/i,             "Hulu"],
+  [/\bdisney\b/i,           "Disney Plus"],
+  [/\bmax\b/i,              "Max"],
+  [/\bapple\b/i,            "Apple TV Plus"],
+  [/\bpeacock\b/i,          "Peacock"],
+  [/\bparamount\b/i,        "Paramount Plus"],
+  [/\bhbo\b/i,              "Max"],
+];
+
+function detectMentionedService(text: string): string | null {
+  for (const [re, name] of SERVICE_MAP) {
+    if (re.test(text)) return name;
+  }
+  return null;
+}
+
 async function runRecommendAgent(
   userQuery: string,
   options: { region: string; userSubscriptions: string[] }
 ): Promise<string> {
   const { region, userSubscriptions } = options;
+
+  // Detect if user specified a service ("I have Prime — what's free?")
+  const mentionedService = detectMentionedService(userQuery);
+  const effectiveSubs = mentionedService
+    ? [...new Set([...userSubscriptions, mentionedService])]
+    : userSubscriptions;
+
   const searchQuery = extractSearchQuery(userQuery);
-  console.log("[recommend] query:", searchQuery);
+  console.log("[recommend] query:", searchQuery, "| service:", mentionedService ?? "none");
 
   // Search TMDB for titles matching the mood/genre
   let searchResults;
@@ -448,7 +485,7 @@ async function runRecommendAgent(
         : r.first_air_date
         ? new Date(r.first_air_date).getFullYear()
         : null;
-      const onSubscription = streaming.some((s) => userSubscriptions.includes(s));
+      const onSubscription = streaming.some((s) => effectiveSubs.includes(s));
       return { title: altTitle, year: altYear, type: r.media_type === "tv" ? "TV Show" : "Movie", streaming, rentOptions, onSubscription };
     })
   );
@@ -458,9 +495,15 @@ async function runRecommendAgent(
     .filter((r): r is PromiseFulfilledResult<RecommendItem> => r.status === "fulfilled")
     .map((r) => r.value);
 
+  // If a specific service was mentioned, filter to only show things on that service
+  const filterService = mentionedService;
+
   // Prefer titles with flatrate streaming; fall back to rent options
   const streamingOptions: RecommendItem[] = allOptions
-    .filter((r) => r.streaming.length > 0)
+    .filter((r) => {
+      if (filterService) return r.streaming.some((s) => s.toLowerCase().includes(filterService.toLowerCase().split(" ")[0]));
+      return r.streaming.length > 0;
+    })
     .sort((a, b) => (b.onSubscription ? 1 : 0) - (a.onSubscription ? 1 : 0))
     .slice(0, 4);
 
@@ -470,19 +513,30 @@ async function runRecommendAgent(
 
   // Nothing available at all
   if (streamingOptions.length === 0 && rentFallback.length === 0) {
+    if (mentionedService) {
+      return `I couldn't find anything matching that in your region (${region}) on ${mentionedService} right now. Try asking for a specific genre — like "horror on Prime" or "comedies on Prime".`;
+    }
     return `Nothing came up for that mood in your region (${region}) right now. Try a different genre?`;
   }
 
   // Format with AI
   const subNote =
-    userSubscriptions.length > 0
-      ? `The user subscribes to: ${userSubscriptions.join(", ")}. Mark titles on their subscriptions with ✅.`
+    effectiveSubs.length > 0
+      ? `The user has: ${effectiveSubs.join(", ")}. Mark titles on their services with ✅.`
       : "";
 
   const isRentOnly = streamingOptions.length === 0;
   const optionsToShow = isRentOnly ? rentFallback : streamingOptions.slice(0, 3);
-  const availabilityNote = isRentOnly
+
+  // If we filtered to a specific service but found nothing, widen the search
+  const emptyServiceResult = filterService && streamingOptions.length === 0 && rentFallback.length === 0;
+
+  const availabilityNote = emptyServiceResult
+    ? `Nothing from the search was found on ${mentionedService} in ${region}. Let the user know and suggest they try a different genre or check the app directly.`
+    : isRentOnly
     ? `None of these are on a streaming subscription in ${region} right now — they're available to rent/buy. Mention this naturally.`
+    : mentionedService
+    ? `These are all available on ${mentionedService} in ${region}. Confirm that in your reply.`
     : "";
 
   const formatResult = await generateText({
