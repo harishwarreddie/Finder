@@ -127,10 +127,11 @@ export function SearchBar({ initialValue = "" }: { initialValue?: string }) {
           position: "absolute", top: "calc(100% + 8px)", left: 0, right: 0,
           borderRadius: 16,
           overflow: "hidden",
-          background: "#0d0f1a",
-          border: "1px solid rgba(255,255,255,0.10)",
-          boxShadow: "0 20px 60px rgba(0,0,0,0.5), 0 0 0 1px rgba(124,58,237,0.15)",
-          zIndex: 50,
+          background: "#111226",
+          border: "1px solid rgba(124,58,237,0.25)",
+          boxShadow: "0 24px 64px rgba(0,0,0,0.75), 0 0 0 1px rgba(124,58,237,0.18)",
+          zIndex: 9999,
+          isolation: "isolate",
         }}>
           {suggestions.map((s, i) => (
             <button
