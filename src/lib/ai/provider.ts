@@ -2,28 +2,63 @@
 // ALL AI calls go through this file. Switching providers = changing this file only.
 // Uses Vercel AI SDK — supports Anthropic, OpenAI, Google, Groq, and others.
 //
-// Current provider: Anthropic (claude-3-5-haiku-20241022)
+// Current provider: Groq (FREE tier) via OpenAI-compatible endpoint
 //
-// WHY Haiku:
-//   • Fastest + cheapest Anthropic model — ideal for availability lookups
-//   • Excellent at structured instruction following
-//   • No tool-calling format issues (unlike the old Groq/OpenAI shim)
+// WHY this approach:
+//   Groq officially provides an OpenAI-compatible API at api.groq.com/openai/v1
+//   We use @ai-sdk/openai (version-matched to the rest of our AI SDK) and just
+//   point it at Groq's URL. This avoids version conflicts from @ai-sdk/groq.
+//
+// Model: llama-3.3-70b-versatile
+//   • Meta's 70B LLaMA 3.3 model, hosted on Groq's fast inference hardware
+//   • Free on Groq's developer plan — no credit card needed
+//   • Strong at tool calling and following structured instructions
+//
+// To switch back to Anthropic later:
+//   1. Import createAnthropic from "@ai-sdk/anthropic"
+//   2. Change GROQ_API_KEY → ANTHROPIC_API_KEY in your .env
+//   3. Return anthropic("claude-3-5-sonnet-20241022") from getModel()
 
-import { createAnthropic } from "@ai-sdk/anthropic";
+import { createOpenAI } from "@ai-sdk/openai";
 
-function getAnthropicClient() {
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) throw new Error("ANTHROPIC_API_KEY is not set — add it to your .env file");
-  return createAnthropic({ apiKey });
+function getGroqClient() {
+  const apiKey = process.env.GROQ_API_KEY;
+  // What: reads the key from environment variables (never hard-coded in source)
+  // Why: keeps secrets out of Git — .env is in .gitignore
+  if (!apiKey) throw new Error("GROQ_API_KEY is not set — add it to your .env file");
+
+  // createOpenAI normally talks to OpenAI's servers.
+  // By passing a different baseURL, we redirect it to Groq's servers instead.
+  // Groq's API is designed to be a drop-in replacement for OpenAI's API.
+  return createOpenAI({
+    baseURL: "https://api.groq.com/openai/v1",
+    apiKey,
+  });
 }
 
 /**
  * The primary AI model used by the agent.
- * claude-3-5-haiku-20241022 — Anthropic's fastest model, great for structured answers.
+ *
+ * Model history:
+ *   openai/gpt-oss-120b  → injected garbage tokens into tool names
+ *   llama-3.1-8b-instant → not available on this Groq account
+ *   qwen/qwen3.6-27b          → works but slow (thinking model, ~15–30s per query)
+ *   llama-3.3-70b-versatile   → not available on this Groq account
+ *   llama3-70b-8192           → decommissioned by Groq
+ *   mixtral-8x7b-32768        → current — Groq's longest-running supported model
+ *
+ * Why mixtral-8x7b-32768:
+ *   Mixtral 8x7B MoE model on Groq. Very stable, fast, and reliably available
+ *   on free-tier accounts. Strong at structured instruction following.
  */
 export function getModel() {
-  const anthropic = getAnthropicClient();
-  return anthropic("claude-3-5-haiku-20241022");
+  const groq = getGroqClient();
+  // What: .chat() forces the AI SDK to use OpenAI's Chat Completions API format.
+  // Why: newer @ai-sdk/openai versions default to the "Responses API" (a newer OpenAI feature).
+  //      Groq's API is Chat Completions-compatible but does NOT support the Responses API format.
+  //      Without .chat(), the SDK sends Responses API requests → Groq rejects with
+  //      "unsupported content types or unsupported content fields".
+  return groq.chat("openai/gpt-oss-20b");
 }
 
 /**
@@ -31,6 +66,6 @@ export function getModel() {
  * Keep these centralized so they're easy to tune.
  */
 export const MODEL_CONFIG = {
-  maxTokens: 1024,
+  maxTokens: 1024, // Was 2048 — availability answers don't need that much output
   temperature: 0.1, // Low temperature → factual, not creative (right for availability queries)
 } as const;
