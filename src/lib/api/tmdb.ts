@@ -218,3 +218,79 @@ export async function getTVGenres(): Promise<{ genres: { id: number; name: strin
   const schema = z.object({ genres: z.array(z.object({ id: z.number(), name: z.string() })) });
   return tmdbFetch("/genre/tv/list", schema);
 }
+
+// ── DISCOVER ──────────────────────────────────────────────────────────────────
+// Use /discover/movie to find movies by watch provider, genre, region etc.
+// Much more reliable than searchMulti for "what's on Netflix?" type queries.
+
+/**
+ * TMDB watch-provider IDs — consistent globally.
+ * Used with /discover/movie?with_watch_providers=ID&watch_region=XX
+ */
+export const TMDB_PROVIDER_IDS: Record<string, number> = {
+  "Netflix":             8,
+  "Amazon Prime Video":  9,
+  "Prime Video":         9,   // TMDB uses this name in some regions
+  "Disney Plus":         337,
+  "Disney+":             337,
+  "Hulu":                15,
+  "Max":                 1899,
+  "HBO Max":             1899,
+  "Apple TV Plus":       350,
+  "Apple TV+":           350,
+  "Peacock":             386,
+  "Paramount Plus":      531,
+  "Paramount+":          531,
+};
+
+/** TMDB genre IDs for /discover/movie */
+export const TMDB_GENRE_IDS: Record<string, number> = {
+  action:       28,
+  adventure:    12,
+  animation:    16,
+  comedy:       35,
+  crime:        80,
+  documentary:  99,
+  drama:        18,
+  family:       10751,
+  fantasy:      14,
+  horror:       27,
+  mystery:      9648,
+  romance:      10749,
+  "sci-fi":     878,
+  scifi:        878,
+  thriller:     53,
+};
+
+export async function discoverMovies(options: {
+  withWatchProviders?: number;
+  watchRegion?: string;
+  withGenres?: number;
+  sortBy?: string;
+  page?: number;
+}): Promise<TMDBSearchResponse> {
+  const params: Record<string, string> = {
+    page:    String(options.page ?? 1),
+    sort_by: options.sortBy ?? "popularity.desc",
+  };
+  if (options.withWatchProviders) {
+    params.with_watch_providers         = String(options.withWatchProviders);
+    params.with_watch_monetization_types = "flatrate|free";
+  }
+  if (options.watchRegion) params.watch_region = options.watchRegion;
+  if (options.withGenres)  params.with_genres   = String(options.withGenres);
+
+  // discoverMovies returns movie results — attach media_type manually after parsing
+  const result = await tmdbFetch("/discover/movie", TMDBSearchResponseSchema, params);
+  // Ensure media_type is set since /discover doesn't include it
+  result.results = result.results.map((r) =>
+    r.media_type ? r : { ...r, media_type: "movie" as const }
+  );
+  return result;
+}
+
+export async function getTrendingMovies(
+  timeWindow: "day" | "week" = "week"
+): Promise<TMDBSearchResponse> {
+  return tmdbFetch(`/trending/movie/${timeWindow}`, TMDBSearchResponseSchema);
+}

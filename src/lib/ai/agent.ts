@@ -29,6 +29,10 @@ import {
   getTVWatchProviders,
   getSimilarMovies,
   getSimilarTVShows,
+  discoverMovies,
+  getTrendingMovies,
+  TMDB_PROVIDER_IDS,
+  TMDB_GENRE_IDS,
 } from "@/lib/api/tmdb";
 
 // ── TYPES ─────────────────────────────────────────────────────────────────────
@@ -48,33 +52,9 @@ export type AgentMessage = {
 const RECOMMEND_RE =
   /\b(recommend|suggest( me)?|something (to watch|scary|funny|good|dark|light|short)|what (should|to|can i) watch|what.?s (free|on|available|streaming)|free to watch|available (to me|on|for)|in the mood (for|to)|feel like watching|find (me )?(a |some|something)|looking for (a |something)|any good (movies?|shows?|films?)|give me (a |some)|i (have|got|use|subscribe to) (netflix|prime|amazon|hulu|disney|max|apple|peacock|paramount|hbo)|what.?s good|what.?s (on|new))\b|^[\s\p{Emoji}]+$/iu;
 
-// Keyword → TMDB search query for that genre/mood.
-// Ordered so more specific terms appear before generic ones.
-const GENRE_QUERY: [RegExp, string][] = [
-  [/\b(horror|scary|spooky|creepy|frightening)\b/i,         "best horror movies"],
-  [/\b(comedy|funny|hilarious|laugh|humour|humor)\b/i,      "best comedy movies"],
-  [/\b(thriller|suspense|tense)\b/i,                        "best thriller movies"],
-  [/\b(action|explosive|fight|superhero)\b/i,               "best action movies"],
-  [/\b(romance|romantic|love story)\b/i,                    "best romance movies"],
-  [/\b(sci.?fi|science fiction|space|futuristic)\b/i,       "best science fiction movies"],
-  [/\b(drama|emotional|heavy|intense)\b/i,                  "best drama movies"],
-  [/\b(animated|animation|cartoon)\b/i,                     "best animated movies"],
-  [/\b(documentary|docuseries|true story|real)\b/i,         "best documentaries"],
-  [/\b(mystery|whodunit|detective)\b/i,                     "best mystery movies"],
-  [/\b(crime|heist|gangster|mob)\b/i,                       "best crime movies"],
-  [/\b(fantasy|magic|wizard|mythical)\b/i,                  "best fantasy movies"],
-  [/\b(adventure|travel|explore)\b/i,                       "best adventure movies"],
-  [/\b(family|kids|children)\b/i,                           "best family movies"],
-  [/\b(tv show|series|binge|season)\b/i,                    "best tv series"],
-  [/\b(cheap|cheapest|budget|under \$|low.?cost)\b/i,       "popular movies streaming now"],
-];
-
-function extractSearchQuery(text: string): string {
-  for (const [pattern, query] of GENRE_QUERY) {
-    if (pattern.test(text)) return query;
-  }
-  return "popular movies streaming now";
-}
+// (GENRE_QUERY / extractSearchQuery replaced by extractGenreId + TMDB_GENRE_IDS —
+//  genre detection now uses /discover/movie with a proper genre ID rather than
+//  searching for "best horror movies" as a title string.)
 
 // ── AGENT ─────────────────────────────────────────────────────────────────────
 
@@ -237,12 +217,21 @@ export async function runAgent(
       ? (secondResult as { popularity?: number }).popularity ?? 0
       : 0;
 
-    const isDominant   = topPop > 15 && (!secondResult || topPop > secondPop * 4);
-    const isExactMatch =
-      (topResult.title ?? topResult.name ?? "").toLowerCase() === extracted.toLowerCase() &&
-      ((topResult as { vote_count?: number }).vote_count ?? 0) > 300;
+    const isDominant = topPop > 15 && (!secondResult || topPop > secondPop * 3);
 
-    const needsDisambiguation = namesAreDifferent && !isDominant && !isExactMatch;
+    // If the top result title is an exact match for what was extracted, just use it —
+    // no vote threshold needed. TMDB's ranking already surfaces the most relevant result.
+    const isExactMatch =
+      (topResult.title ?? topResult.name ?? "").toLowerCase() === extracted.toLowerCase();
+
+    // Also skip disambiguation when all alternatives share the same base title (franchise)
+    const allShareBaseName = searchResults
+      .slice(0, 4)
+      .every((r) =>
+        (r.title ?? r.name ?? "").toLowerCase().startsWith(extracted.toLowerCase())
+      );
+
+    const needsDisambiguation = namesAreDifferent && !isDominant && !isExactMatch && !allShareBaseName;
 
     if (needsDisambiguation) {
       const disambigOptions = searchResults.slice(0, 4).map((r, i) => {
@@ -410,23 +399,44 @@ export async function runAgent(
 // Called when the user asks for suggestions rather than a specific title.
 // Searches TMDB by mood/genre, checks streaming availability, returns top picks.
 
-// Detect if the user is asking about a specific service they have
-const SERVICE_MAP: [RegExp, string][] = [
-  [/\b(amazon|prime\b)/i,   "Amazon Prime Video"],
-  [/\bnetflix\b/i,          "Netflix"],
-  [/\bhulu\b/i,             "Hulu"],
-  [/\bdisney\b/i,           "Disney Plus"],
-  [/\bmax\b/i,              "Max"],
-  [/\bapple\b/i,            "Apple TV Plus"],
-  [/\bpeacock\b/i,          "Peacock"],
-  [/\bparamount\b/i,        "Paramount Plus"],
-  [/\bhbo\b/i,              "Max"],
+// Detect if the user is asking about a specific streaming service.
+// Returns { name, providerId } so we can filter discover results accurately.
+const SERVICE_MAP: [RegExp, { name: string; providerId: number }][] = [
+  [/\b(amazon|prime video|prime\b)/i, { name: "Amazon Prime Video", providerId: 9    }],
+  [/\bnetflix\b/i,                    { name: "Netflix",             providerId: 8    }],
+  [/\bhulu\b/i,                       { name: "Hulu",                providerId: 15   }],
+  [/\b(disney\+?|disney plus)\b/i,    { name: "Disney Plus",         providerId: 337  }],
+  [/\bmax\b/i,                        { name: "Max",                 providerId: 1899 }],
+  [/\b(apple tv\+?|apple)\b/i,        { name: "Apple TV Plus",       providerId: 350  }],
+  [/\bpeacock\b/i,                    { name: "Peacock",             providerId: 386  }],
+  [/\b(paramount\+?|paramount plus)\b/i, { name: "Paramount Plus",   providerId: 531  }],
+  [/\bhbo\b/i,                        { name: "Max",                 providerId: 1899 }],
 ];
 
-function detectMentionedService(text: string): string | null {
-  for (const [re, name] of SERVICE_MAP) {
-    if (re.test(text)) return name;
+function detectMentionedService(text: string): { name: string; providerId: number } | null {
+  for (const [re, info] of SERVICE_MAP) {
+    if (re.test(text)) return info;
   }
+  return null;
+}
+
+// Keyword → TMDB genre ID for /discover/movie
+function extractGenreId(text: string): number | null {
+  const lower = text.toLowerCase();
+  if (/\b(horror|scary|spooky|creepy)\b/.test(lower))        return TMDB_GENRE_IDS.horror;
+  if (/\b(comedy|funny|hilarious|laugh)\b/.test(lower))      return TMDB_GENRE_IDS.comedy;
+  if (/\b(thriller|suspense|tense)\b/.test(lower))           return TMDB_GENRE_IDS.thriller;
+  if (/\b(action|explosive|fight|superhero)\b/.test(lower))  return TMDB_GENRE_IDS.action;
+  if (/\b(romance|romantic|love story)\b/.test(lower))       return TMDB_GENRE_IDS.romance;
+  if (/\b(sci.?fi|science fiction|space)\b/.test(lower))     return TMDB_GENRE_IDS["sci-fi"];
+  if (/\b(drama|emotional|heavy|intense)\b/.test(lower))     return TMDB_GENRE_IDS.drama;
+  if (/\b(animated|animation|cartoon)\b/.test(lower))        return TMDB_GENRE_IDS.animation;
+  if (/\b(documentary|docuseries|true story)\b/.test(lower)) return TMDB_GENRE_IDS.documentary;
+  if (/\b(mystery|whodunit|detective)\b/.test(lower))        return TMDB_GENRE_IDS.mystery;
+  if (/\b(crime|heist|gangster|mob)\b/.test(lower))          return TMDB_GENRE_IDS.crime;
+  if (/\b(fantasy|magic|wizard)\b/.test(lower))              return TMDB_GENRE_IDS.fantasy;
+  if (/\b(adventure|explore)\b/.test(lower))                 return TMDB_GENRE_IDS.adventure;
+  if (/\b(family|kids|children)\b/.test(lower))              return TMDB_GENRE_IDS.family;
   return null;
 }
 
@@ -439,27 +449,24 @@ async function runRecommendAgent(
   // Detect if user specified a service ("I have Prime — what's free?")
   const mentionedService = detectMentionedService(userQuery);
   const effectiveSubs = mentionedService
-    ? [...new Set([...userSubscriptions, mentionedService])]
+    ? [...new Set([...userSubscriptions, mentionedService.name])]
     : userSubscriptions;
 
-  const searchQuery = extractSearchQuery(userQuery);
-  console.log("[recommend] query:", searchQuery, "| service:", mentionedService ?? "none");
+  // Detect genre from the query
+  const genreId = extractGenreId(userQuery);
 
-  // Search TMDB for titles matching the mood/genre
-  let searchResults;
-  try {
-    const res = await searchMulti(searchQuery);
-    searchResults = res.results.filter((r) => r.media_type !== "person").slice(0, 8);
-  } catch {
-    return "I had trouble finding recommendations right now. Please try again.";
-  }
+  console.log(
+    "[recommend] service:", mentionedService?.name ?? "none",
+    "| genre:", genreId ?? "none",
+    "| region:", region
+  );
 
-  if (searchResults.length === 0) {
-    return "I couldn't find anything for that mood. Try a different genre?";
-  }
+  // ── DISCOVERY STRATEGY ─────────────────────────────────────────────────────
+  // 1. If a service was mentioned → use /discover/movie with provider filter
+  //    (accurate: only returns titles actually available on that service in the region)
+  // 2. If just a genre → use /discover/movie with genre filter
+  // 3. Fallback → use /trending/movie/week (always has results)
 
-  // Explicit type avoids the self-referential inference error TypeScript raises
-  // when you write `typeof streamingOptions[0]` inside streamingOptions' own initializer.
   type RecommendItem = {
     title: string;
     year: number | null;
@@ -469,41 +476,78 @@ async function runRecommendAgent(
     onSubscription: boolean;
   };
 
-  // Check watch providers for all results in parallel
+  let discoverResults: Awaited<ReturnType<typeof discoverMovies>>["results"] = [];
+
+  try {
+    if (mentionedService) {
+      // Primary: discover movies on this specific provider in the user's region
+      const res = await discoverMovies({
+        withWatchProviders: mentionedService.providerId,
+        watchRegion:        region,
+        withGenres:         genreId ?? undefined,
+        sortBy:             "popularity.desc",
+      });
+      discoverResults = res.results.slice(0, 10);
+
+      // If discover returned nothing (provider not in this region), fall back to popular
+      if (discoverResults.length === 0) {
+        const fallback = await getTrendingMovies("week");
+        discoverResults = fallback.results.slice(0, 8);
+      }
+    } else if (genreId) {
+      const res = await discoverMovies({ withGenres: genreId, watchRegion: region });
+      discoverResults = res.results.slice(0, 10);
+    } else {
+      const res = await getTrendingMovies("week");
+      discoverResults = res.results.slice(0, 8);
+    }
+  } catch {
+    return "I had trouble finding recommendations right now. Please try again.";
+  }
+
+  if (discoverResults.length === 0) {
+    if (mentionedService) {
+      return `I couldn't find titles for ${mentionedService.name} in your region (${region}). Try asking for a genre — like "horror on Prime".`;
+    }
+    return "I couldn't find anything for that mood right now. Try a different genre?";
+  }
+
+  // ── PROVIDER CHECK ─────────────────────────────────────────────────────────
+  // For discover results, we already know the service (when mentionedService is set).
+  // We still check providers to get the full list of streaming options per title
+  // and confirm availability for the format step.
+
   const providerChecks = await Promise.allSettled(
-    searchResults.map(async (r): Promise<RecommendItem> => {
+    discoverResults.map(async (r): Promise<RecommendItem> => {
+      const mediaType = (r.media_type ?? "movie") as "movie" | "tv";
       const prov =
-        r.media_type === "movie"
+        mediaType === "movie"
           ? await getMovieWatchProviders(r.id)
           : await getTVWatchProviders(r.id);
-      const rd = prov.results[region.toUpperCase()] ?? null;
-      const streaming = rd?.flatrate?.map((p) => p.provider_name) ?? [];
+      const rd          = prov.results[region.toUpperCase()] ?? null;
+      const streaming   = rd?.flatrate?.map((p) => p.provider_name) ?? [];
       const rentOptions = rd?.rent?.map((p) => p.provider_name) ?? [];
-      const altTitle = r.title ?? r.name ?? "Unknown";
-      const altYear = r.release_date
+      const altTitle    = r.title ?? r.name ?? "Unknown";
+      const altYear     = r.release_date
         ? new Date(r.release_date).getFullYear()
         : r.first_air_date
         ? new Date(r.first_air_date).getFullYear()
         : null;
-      const onSubscription = streaming.some((s) => effectiveSubs.includes(s));
-      return { title: altTitle, year: altYear, type: r.media_type === "tv" ? "TV Show" : "Movie", streaming, rentOptions, onSubscription };
+      const onSubscription = streaming.some((s) =>
+        effectiveSubs.some((sub) => s.toLowerCase().includes(sub.toLowerCase().split(" ")[0]))
+      );
+      return { title: altTitle, year: altYear, type: mediaType === "tv" ? "TV Show" : "Movie", streaming, rentOptions, onSubscription };
     })
   );
 
-  // All fulfilled results (streaming or rent)
   const allOptions: RecommendItem[] = providerChecks
     .filter((r): r is PromiseFulfilledResult<RecommendItem> => r.status === "fulfilled")
     .map((r) => r.value);
 
-  // If a specific service was mentioned, filter to only show things on that service
-  const filterService = mentionedService;
-
-  // Prefer titles with flatrate streaming; fall back to rent options
+  // When a service was specified via /discover, those results ARE on that service —
+  // but the provider check confirms. Include results with any streaming option.
   const streamingOptions: RecommendItem[] = allOptions
-    .filter((r) => {
-      if (filterService) return r.streaming.some((s) => s.toLowerCase().includes(filterService.toLowerCase().split(" ")[0]));
-      return r.streaming.length > 0;
-    })
+    .filter((r) => r.streaming.length > 0 || mentionedService !== null)
     .sort((a, b) => (b.onSubscription ? 1 : 0) - (a.onSubscription ? 1 : 0))
     .slice(0, 4);
 
@@ -511,12 +555,11 @@ async function runRecommendAgent(
     .filter((r) => r.streaming.length === 0 && r.rentOptions.length > 0)
     .slice(0, 3);
 
-  // Nothing available at all
   if (streamingOptions.length === 0 && rentFallback.length === 0) {
     if (mentionedService) {
-      return `I couldn't find anything matching that in your region (${region}) on ${mentionedService} right now. Try asking for a specific genre — like "horror on Prime" or "comedies on Prime".`;
+      return `Couldn't confirm ${mentionedService.name} availability in ${region} right now. Check the app directly — TMDB provider data can lag.`;
     }
-    return `Nothing came up for that mood in your region (${region}) right now. Try a different genre?`;
+    return `Nothing came up for that mood in ${region} right now. Try a different genre?`;
   }
 
   // Format with AI
@@ -528,15 +571,10 @@ async function runRecommendAgent(
   const isRentOnly = streamingOptions.length === 0;
   const optionsToShow = isRentOnly ? rentFallback : streamingOptions.slice(0, 3);
 
-  // If we filtered to a specific service but found nothing, widen the search
-  const emptyServiceResult = filterService && streamingOptions.length === 0 && rentFallback.length === 0;
-
-  const availabilityNote = emptyServiceResult
-    ? `Nothing from the search was found on ${mentionedService} in ${region}. Let the user know and suggest they try a different genre or check the app directly.`
-    : isRentOnly
-    ? `None of these are on a streaming subscription in ${region} right now — they're available to rent/buy. Mention this naturally.`
+  const availabilityNote = isRentOnly
+    ? `None are on a subscription in ${region} right now — rent/buy only. Mention this naturally.`
     : mentionedService
-    ? `These are all available on ${mentionedService} in ${region}. Confirm that in your reply.`
+    ? `These titles are available on ${mentionedService.name} in ${region}. Confirm that in your reply.`
     : "";
 
   const formatResult = await generateText({
