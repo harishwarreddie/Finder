@@ -12,7 +12,6 @@ export function SearchBar({ initialValue = "" }: { initialValue?: string }) {
   const [focused, setFocused] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const clapFiredRef = useRef(false);
   const router = useRouter();
 
   useEffect(() => {
@@ -34,8 +33,6 @@ export function SearchBar({ initialValue = "" }: { initialValue?: string }) {
   }, [query]);
 
   function fireClap() {
-    if (clapFiredRef.current) return;
-    clapFiredRef.current = true;
     window.dispatchEvent(new CustomEvent("searchClap"));
   }
 
