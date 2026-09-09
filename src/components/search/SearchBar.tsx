@@ -126,12 +126,17 @@ export function SearchBar({ initialValue = "" }: { initialValue?: string }) {
         <div style={{
           position: "absolute", top: "calc(100% + 8px)", left: 0, right: 0,
           borderRadius: 16,
-          overflow: "hidden",
-          background: "rgb(14, 13, 30)",
-          border: "1px solid rgba(124,58,237,0.28)",
-          boxShadow: "0 24px 64px rgba(0,0,0,0.80), 0 0 0 1px rgba(124,58,237,0.18)",
+          /* 3 rows × 68px each — extras scroll */
+          maxHeight: 204,
+          overflowY: "auto",
+          overflowX: "hidden",
+          background: "rgb(22, 20, 46)",
+          border: "1px solid rgba(124,58,237,0.30)",
+          boxShadow: "0 24px 64px rgba(0,0,0,0.80), 0 0 0 1px rgba(124,58,237,0.20)",
           zIndex: 9999,
           isolation: "isolate",
+          scrollbarWidth: "thin",
+          scrollbarColor: "rgba(124,58,237,0.4) transparent",
         }}>
           {suggestions.map((s, i) => (
             <button
@@ -146,12 +151,14 @@ export function SearchBar({ initialValue = "" }: { initialValue?: string }) {
                 padding: "10px 16px",
                 background: "transparent",
                 border: "none",
-                borderBottom: i < suggestions.length - 1 ? "1px solid rgba(255,255,255,0.06)" : "none",
+                borderBottom: i < suggestions.length - 1 ? "1px solid rgba(255,255,255,0.07)" : "none",
                 cursor: "pointer",
                 textAlign: "left",
                 transition: "background 0.15s",
+                minHeight: 68,
+                boxSizing: "border-box",
               }}
-              onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "rgb(28, 22, 58)"}
+              onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "rgb(42, 32, 88)"}
               onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "transparent"}
             >
               {s.posterUrl ? (
