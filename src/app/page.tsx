@@ -55,7 +55,7 @@ export default function HomePage() {
 
       {/* ── Search bar ── */}
       <div style={{
-        position: "relative", zIndex: 1,
+        position: "relative", zIndex: 100,
         width: "100%", maxWidth: 620,
         animation: "slide-up 0.55s 0.08s ease both",
         opacity: 0,

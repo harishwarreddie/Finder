@@ -54,7 +54,7 @@ export function SearchBar({ initialValue = "" }: { initialValue?: string }) {
     : { boxShadow: "0 0 0 1px rgba(255,255,255,0.07), 0 4px 24px rgba(0,0,0,0.3)" };
 
   return (
-    <div style={{ position: "relative", width: "100%" }}>
+    <div style={{ position: "relative", width: "100%", zIndex: 9999, isolation: "isolate" }}>
       <form onSubmit={handleSubmit} role="search">
         <div style={{
           display: "flex",
@@ -127,9 +127,9 @@ export function SearchBar({ initialValue = "" }: { initialValue?: string }) {
           position: "absolute", top: "calc(100% + 8px)", left: 0, right: 0,
           borderRadius: 16,
           overflow: "hidden",
-          background: "#111226",
-          border: "1px solid rgba(124,58,237,0.25)",
-          boxShadow: "0 24px 64px rgba(0,0,0,0.75), 0 0 0 1px rgba(124,58,237,0.18)",
+          background: "rgb(14, 13, 30)",
+          border: "1px solid rgba(124,58,237,0.28)",
+          boxShadow: "0 24px 64px rgba(0,0,0,0.80), 0 0 0 1px rgba(124,58,237,0.18)",
           zIndex: 9999,
           isolation: "isolate",
         }}>
@@ -151,7 +151,7 @@ export function SearchBar({ initialValue = "" }: { initialValue?: string }) {
                 textAlign: "left",
                 transition: "background 0.15s",
               }}
-              onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "rgba(124,58,237,0.08)"}
+              onMouseEnter={e => (e.currentTarget as HTMLElement).style.background = "rgb(28, 22, 58)"}
               onMouseLeave={e => (e.currentTarget as HTMLElement).style.background = "transparent"}
             >
               {s.posterUrl ? (
